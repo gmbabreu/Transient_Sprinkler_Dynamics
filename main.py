@@ -12,9 +12,10 @@
         1. Reads in angular position data in csv format and request fit time from user
         2. Estimates omega (natural frequency) and gamma (damping coefficent)
         3. Cleans noise from the data before and after forcing
-        4. Uses Fourier tranforms to produce the torque signal for the data
+        4. Uses Fourier tranforms to extract the underlying torque signal
         5. Does a forward ODE solve using the extracted torquue signal to verify the results
-        6. Saves extracted torque signal to data directory in .csv format and plots results of code!
+        6. Computes the integral of torque over time for the system
+        7. Saves extracted torque signal to data directory in .csv format and plots results of code!
 
     All sections of this code are clearly labelled as above for
     process trasparency.
@@ -27,7 +28,7 @@
 plot_switch = 1
 
 # saves extracted torque signal (1) or does not (0)
-write_t = 1
+write_t = 0
 
 # fit data after producing estimates of gamma dn omega (1) or no fit (0)
 fit_switch = 1
@@ -49,7 +50,7 @@ re = "1000"
 trial_num = 1
 
 # define where data is stored on local machine
-data_dir = "/Users/rachelbertaud/code/Sprinkler_Data/"
+data_dir = "/Users/rachelbertaud/code/Sprinkler/Transient_Dynamics/Sprinkler_Data/"
 
 
 # DEFINE DEPENDENCIES AND UDFs
@@ -57,6 +58,7 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 import sys
+from scipy import integrate 
 
 # enters path where the function files are 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'Main_Functions'))
@@ -70,9 +72,10 @@ from estimate_funcs import est_omega_d, est_gamma, get_constants, fit_phi
 # PROCESS FUNCS
 from process_funcs import combine_data, remove_noise
 
-# PLOT FUNCTIONS
-from plot_funcs import plot_analytical, plot_franken, plot_phi_gen, plot_torque
+# PLOT FUNCS
+from plot_funcs import plot_analytical, plot_franken, plot_phi_gen, plot_torque, plot_torque_int
 
+# FOURIER TRANSFORM FUNCS
 from fft_funcs import torque_solver, phi_from_torque
 
 
@@ -158,12 +161,16 @@ def phi_an(t):
     wd = np.sqrt(omega**2 - gamma**2)
     return np.exp(-gamma * (t - t0)) * (c1 * np.cos(wd * (t - t0)) + c2 * np.sin(wd * (t - t0)))
 
-
 # SECTION THREE - CLEANS NOISE FROM DATA
 ###################################################################################################
 
+# threshold is how much you want to clean the data! bigger = smoother ( .01 is nice )
 if(proc_data_switch == 1):
-    full_y = remove_noise(full_t, full_y, threshold=1)
+    full_y = remove_noise(full_t, full_y, threshold=.01)
+
+# hard coded flag right now to turn off inserting the tail on the end. comment this out
+# and rerun for clarification
+proc_data_switch = 2
 
 franken_t, franken_y, t_end = combine_data(full_t, full_y, index, phi_an, proc_data_switch)
 
@@ -194,7 +201,13 @@ phi_gen = phi_from_torque(N_f, franken_t, signal, gamma, omega)
 
 err = np.sqrt(np.trapezoid(((phi_gen - new_y)**2), x=new_t)) / np.sqrt(np.trapezoid((new_y**2), x=new_t))
 print("Error forward: ", err)
-# SECTION SIX - SAVE SIGNAL AND PLOT RESULTS
+
+# SECTION SIX - COMPUTE TORQUE INTEGRAL
+###################################################################################################
+
+cummInt = integrate.cumulative_trapezoid(np.real(new_sig), new_t, initial=0)
+
+# SECTION SEVEN - SAVE SIGNAL AND PLOT RESULTS
 ###################################################################################################
 
 if(write_t == 1):
@@ -209,7 +222,8 @@ if(write_t == 1):
 
 if(plot_switch == 1):
     plot_analytical(full_t, full_y, phi_an(full_t), index)
-    plot_franken(franken_t, franken_y, full_t, index, t_end)
+    # plot_franken(franken_t, franken_y, full_t, index, t_end)
     plot_torque(franken_t, signal)
+    plot_torque_int(new_t, cummInt)
     plot_phi_gen(new_t, new_y, phi_gen)
     plt.show()

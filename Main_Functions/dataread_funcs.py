@@ -41,7 +41,7 @@ def plot_data(t_data, y_data, flag):
     plt.subplots_adjust(bottom=0.25)
 
     # plots data
-    line, = ax.plot(t_data, y_data, color='pink')
+    line, = ax.plot(t_data, y_data, 'o-',color='pink')
     vline = ax.axvline(x=t_data[0], color='purple', linestyle='--')
 
     # add slider

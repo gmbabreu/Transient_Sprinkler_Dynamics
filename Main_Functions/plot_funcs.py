@@ -20,11 +20,11 @@ def plot_analytical(full_t, full_y, y_fit, index):
     ax.set_ylim(y_region.min() - 0.1, y_region.max() + 0.1)
 
     ax.legend()
-    ax.set_xlabel('t')
-    ax.set_ylabel('y')
+    ax.set_xlabel('time, seconds')
+    ax.set_ylabel('Angular Displacement, unsure')
     ax.set_title('Plot of Analytical Solution from gamma/omega and Original Data')
     plt.tight_layout()
-    #plt.show()
+    # plt.show()
 
 
 def plot_franken(franken_t, franken_y, full_t, index, t_end):
@@ -61,19 +61,19 @@ def plot_franken(franken_t, franken_y, full_t, index, t_end):
     if has_tail:
         plt.plot(t_tail,  y_tail,  color='mediumpurple',   linewidth=2, label='analytical tail')
     plt.legend()
-    plt.xlabel('t')
-    plt.ylabel('y')
+    plt.xlabel('time, seconds')
+    plt.ylabel('Angular Displacement, unsure')
     plt.tight_layout()
     plt.title('Plot of Data Used to Find Torque Signal')
-    #plt.show()
+    # plt.show()
 
 def plot_torque(franken_t, signal):
     N = len(franken_t)
     signal = np.real(signal)
     plt.figure()
     plt.plot(franken_t[N//2:], signal[N//2:], color='hotpink')
-    plt.xlabel('t')
-    plt.ylabel('Torque')
+    plt.xlabel('time, seconds')
+    plt.ylabel('Torque, Nm?')
     plt.title('Extracted Torque Signal from Angular Data')
     
 def plot_phi_gen(full_t, full_y, phi_gen):
@@ -82,9 +82,15 @@ def plot_phi_gen(full_t, full_y, phi_gen):
     ax1.scatter(full_t, full_y, color='hotpink', s=10, label='Original Data', zorder=2)
     ax1.plot(full_t, phi_gen, color='mediumpurple', linewidth=2, label='Signal Produced by Torque', zorder=3)
 
-    ax1.set_xlabel('t')
-    ax1.set_ylabel('y')
+    ax1.set_xlabel('time, seconds')
+    ax1.set_ylabel('Angular Displacement, unsure')
     ax1.legend()
     plt.title('Plot of Angular Data Produced by Extracted Torque Signal')
     plt.tight_layout()
-    #plt.show()
+
+def plot_torque_int(new_t, cummInt):
+    plt.figure()
+    plt.plot(new_t, cummInt, color='hotpink')
+    plt.xlabel('time, seconds')
+    plt.ylabel('Integral of Torque')
+    plt.title('Cummulative Integral of Torque Signal')

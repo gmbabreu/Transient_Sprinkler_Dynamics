@@ -4,13 +4,13 @@ from scipy.signal import butter, filtfilt, welch
 
 def combine_data(full_t, full_y, index, phi_an, proc_data_switch):
 
-    if(proc_data_switch == 1):
-        # if(full_y[0] > 0):
-        full_y = full_y + full_y[0]  # clean out some data
-        # else:
-        #     full_y = full_y + full_y[0] 
+    # if(proc_data_switch == 1):
+    #     # if(full_y[0] > 0):
+    #     full_y = full_y + full_y[0]  # clean out some data
+    #     # else:
+    #     #     full_y = full_y + full_y[0] 
 
-        spot = full_t[index]  # t value at peak
+    #     spot = full_t[index]  # t value at peak
     
 
     dt = np.mean(np.diff(full_t))
