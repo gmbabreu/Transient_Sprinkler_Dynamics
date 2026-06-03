@@ -49,7 +49,7 @@ re = "1000"
 
 # define trail number  of data to use
 # reads from data file name, i.e. for "forward_500_trail1" put "1" here 
-trial_num = 1
+trial = 1
 
 # define where data is stored on local machine
 data_dir = "/Users/rachelbertaud/code/Sprinkler/Transient_Dynamics/Sprinkler_Data/"
@@ -66,7 +66,7 @@ from scipy import integrate
 sys.path.append(os.path.join(os.path.dirname(__file__), 'Main_Functions'))
 
 # DATA READ FUNCS
-from dataread_funcs import read_name, read_data, plot_data, fit_segments
+from dataread_funcs import read_data, plot_data, fit_segments
 
 # ESTIMATE FUNCS
 from estimate_funcs import est_omega_d, est_gamma, get_constants, fit_phi
@@ -85,7 +85,7 @@ from fft_funcs import torque_solver, phi_from_torque
 ###################################################################################################
 
 os.chdir(data_dir)
-data_name = spin_dir + "_" + re + "_trial" + str(trial_num)
+data_name = spin_dir + "_" + re + "_trial" + str(trial)
 fname = data_name + ".csv"
 
 print("------------------------------")
@@ -95,16 +95,20 @@ if(fit_switch == 1):
 if(proc_data_switch == 1):
     print("Data is being processed!")
 
-# pretty unnecessary
-# define values from user define inputs
-spin_switch, re, trial = read_name(fname)
+if spin_dir == "forward":
+    spin_switch = 1
+elif spin_dir == "rev":
+    spin_switch = 0
+else:
+    raise ValueError(f"Invalid direction '{parts[0]}' in file name - please use 'forward' or 'rev'")
+
 
 # read data for x,y data, get size of data, and find peaks of data
 full_t, full_y, N, t_peaks, y_peaks = read_data(fname)
 
 
 # lets user look at plot and define fitting target
-t_target = 47.09# plot_data(full_t, full_y, 1)
+t_target = plot_data(full_t, full_y, 1)
 
 # lets user look at plot and define where we will input the data
 # this is only really used for the processing (which we dont do anymore)

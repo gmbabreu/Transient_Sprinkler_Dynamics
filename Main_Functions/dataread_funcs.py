@@ -4,21 +4,6 @@ from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
 
-def read_name(data_name):
-    name_no_ext = os.path.splitext(data_name)[0] #strips file extensions, i.e, .csv
-    parts = name_no_ext.split('_') #splits string on underscores
-
-    if str(parts[0]) == "forward":
-        spin_switch = 1
-    elif str(parts[0]) == "rev":
-        spin_switch = 0
-    else:
-        raise ValueError(f"Invalid direction '{parts[0]}' in file name - please use 'forward' or 'reverse'")
-
-    re = float(parts[1])
-    trial = parts[2]
-
-    return spin_switch, re, trial
 
 def read_data(fname):
     data = np.loadtxt(fname, delimiter=',',skiprows=1)
