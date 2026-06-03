@@ -178,11 +178,13 @@ with damping coefficient $\gamma$ and natural frequency $\omega$. To extract the
 $$
     \ddot{\phi} + 2\gamma\dot{\phi} + \omega^2 \phi = \tau(t).
 $$
+
  We rewrite our ODE as a convolution in the time domain as
  
 $$
 \phi(t) = \int G(t - s)\tau(s)ds,
 $$
+
 where $G$ is the Green's function of the system. In Fourier space, this convolution becomes multiplication, or
 
 $$
@@ -201,9 +203,11 @@ $$
 $$
 
  Therefore, 
+ 
 $$
 \hat{G} = \frac{-1}{k^2 + 2i\gamma k - \omega^2}.
 $$
+
 Since we know the Green's function and $\phi$, we can solve for the torque signal of the system as:
 
 $$
