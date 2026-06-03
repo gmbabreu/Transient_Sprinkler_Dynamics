@@ -30,15 +30,17 @@ plot_switch = 1
 # saves extracted torque signal (1) or does not (0)
 write_t = 0
 
-# fit data after producing estimates of gamma dn omega (1) or no fit (0)
+# fit data after producing estimates of gamma and omega (1) or no fit (0)
 fit_switch = 1
 
-# processes the data before forcing and after forcing to remove noise (1)
-# or uses raw data (0)
-proc_data_switch = 0
+# # processes the data before forcing and after forcing to remove noise (1)
+# # or uses raw data (0)
+# # KELLY IGNORE THIS AND HAVE IT SET TO 0
+proc_data_switch = 1
 
 # define the spin direction of data to use
 # reads from data file name, i.e. for "forward_500_trail1" put "forward" here
+# rev for reverse and forward for forward
 spin_dir = "rev"
 
 # define reynolds number of data to use
@@ -93,17 +95,20 @@ if(fit_switch == 1):
 if(proc_data_switch == 1):
     print("Data is being processed!")
 
+# pretty unnecessary
 # define values from user define inputs
 spin_switch, re, trial = read_name(fname)
 
 # read data for x,y data, get size of data, and find peaks of data
 full_t, full_y, N, t_peaks, y_peaks = read_data(fname)
 
+
 # lets user look at plot and define fitting target
-t_target = plot_data(full_t, full_y, 1)
+t_target = 47.09# plot_data(full_t, full_y, 1)
 
 # lets user look at plot and define where we will input the data
-t_insert = plot_data(full_t, full_y, 0)
+# this is only really used for the processing (which we dont do anymore)
+t_insert = full_t.max() # plot_data(full_t, full_y, 0)
 
 # returns segment of t and y after UD time for fitting target
 index, peak_index, insert_index, t_seg, y_seg = fit_segments(full_t, full_y, t_peaks, t_target, t_insert)
@@ -126,13 +131,13 @@ omega_est = np.sqrt((omega_d*omega_d) + (gamma_est*gamma_est))
 # given fit t value
 c1_est, c2_est = get_constants(gamma_est, omega_est, full_y[index])
 
-print("------------------------------")
-print("-----ESTIMATES FROM PEAKS-----")
-print("------------------------------")
+print("---------------------------------------")
+print("-----ESTIMATES FROM DATA (NO FIT)_-----")
+print("---------------------------------------")
 print("Estimate of gamma: ", gamma_est)
 print("Estimate of omega: ", omega_est)
-print("Estimate of c1: ", c1_est)
-print("Estimate of c2: ", c2_est)
+# print("Estimate of c1: ", c1_est)
+# print("Estimate of c2: ", c2_est)
 
 # if user wants a fit...
 if(fit_switch == 1):
@@ -143,8 +148,8 @@ if(fit_switch == 1):
     print("------------------------------")
     print("Gamma: ", gamma)
     print("Omega: ", omega)
-    print("c1: ", c1)
-    print("c2: ", c2)
+    # print("c1: ", c1)
+    # print("c2: ", c2)
     print("------------------------------")
     
 
@@ -168,12 +173,8 @@ def phi_an(t):
 if(proc_data_switch == 1):
     full_y = remove_noise(full_t, full_y, threshold=.01)
 
-# hard coded flag right now to turn off inserting the tail on the end. comment this out
-# and rerun for clarification
-proc_data_switch = 2
 
 franken_t, franken_y, t_end = combine_data(full_t, full_y, index, phi_an, proc_data_switch)
-
 
 # SECTION FOUR - FOURIER TRANSFORM
 ###################################################################################################
@@ -222,7 +223,7 @@ if(write_t == 1):
 
 if(plot_switch == 1):
     plot_analytical(full_t, full_y, phi_an(full_t), index)
-    # plot_franken(franken_t, franken_y, full_t, index, t_end)
+    plot_franken(franken_t, franken_y, full_t, index, t_end)
     plot_torque(franken_t, signal)
     plot_torque_int(new_t, cummInt)
     plot_phi_gen(new_t, new_y, phi_gen)
