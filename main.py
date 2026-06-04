@@ -33,9 +33,8 @@ write_t = 0
 # fit data after producing estimates of gamma and omega (1) or no fit (0)
 fit_switch = 1
 
-# # processes the data before forcing and after forcing to remove noise (1)
-# # or uses raw data (0)
-# # KELLY IGNORE THIS AND HAVE IT SET TO 0
+# processes the data before forcing and after forcing to remove noise (1)
+# or uses raw data (0)
 proc_data_switch = 1
 
 # define the spin direction of data to use
@@ -54,13 +53,15 @@ trial = 1
 # define where data is stored on local machine
 data_dir = "/Users/rachelbertaud/code/Sprinkler/Transient_Dynamics/Sprinkler_Data/"
 
+lowpass_switch = 1
 
 # DEFINE DEPENDENCIES AND UDFs
 import os
 import matplotlib.pyplot as plt
 import numpy as np
 import sys
-from scipy import integrate 
+from scipy import integrate
+from scipy.signal import butter, sosfiltfilt, cheby2, filtfilt
 
 # enters path where the function files are 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'Main_Functions'))
@@ -108,15 +109,17 @@ full_t, full_y, N, t_peaks, y_peaks = read_data(fname)
 
 
 # lets user look at plot and define fitting target
-t_target = plot_data(full_t, full_y, 1)
+t_target = 49.07 #plot_data(full_t, full_y, 1)
 
 # lets user look at plot and define where we will input the data
 # this is only really used for the processing (which we dont do anymore)
-t_insert = full_t.max() # plot_data(full_t, full_y, 0)
+
+t_insert = full_t.max() 
+# t_insert = 54.08 # plot_data(full_t, full_y, 0)
+
 
 # returns segment of t and y after UD time for fitting target
 index, peak_index, insert_index, t_seg, y_seg = fit_segments(full_t, full_y, t_peaks, t_target, t_insert)
-
 
 # SECTION TWO - ESTIMATE OMEGA AND GAMMA
 ###################################################################################################
@@ -173,12 +176,15 @@ def phi_an(t):
 # SECTION THREE - CLEANS NOISE FROM DATA
 ###################################################################################################
 
-# threshold is how much you want to clean the data! bigger = smoother ( .01 is nice )
+idexComb = index
+# threshold is how much you want to clean the data! bigger = smoother ( .01 is nice for rev , 0.5 for forward )
 if(proc_data_switch == 1):
     full_y = remove_noise(full_t, full_y, threshold=.01)
+    idexComb = insert_index
+    
 
 
-franken_t, franken_y, t_end = combine_data(full_t, full_y, index, phi_an, proc_data_switch)
+franken_t, franken_y, t_end = combine_data(full_t, full_y, idexComb, phi_an, proc_data_switch)
 
 # SECTION FOUR - FOURIER TRANSFORM
 ###################################################################################################
@@ -189,6 +195,45 @@ h = L/N_f
 
 # outputs extracted torque signal
 signal = torque_solver(N_f, gamma, omega, L, franken_y)
+
+stopper = False
+for i in range(len(franken_y)):
+    if stopper:
+        break
+    else:
+        if (franken_y[i] != 0):
+            turnOnIdx = i - 2048
+            stopper = True
+        
+print("turnOnIdx :", turnOnIdx)
+print("index: ", index)
+
+signal = np.real(signal)
+plt.plot(franken_t, signal, label="Before smooth")
+
+if(lowpass_switch == 1):
+    sos = cheby2(N=4, rs=60, Wn=0.5, btype="low", output="sos")
+    signal = sosfiltfilt(sos, signal)
+
+
+    # sos = cheby2(N=7, rs=40, Wn=0.8, btype="low", output="sos")
+    # signal[turnOnIdx:(index+2048)] = sosfiltfilt(sos, signal[turnOnIdx:(index+2048)])
+
+    # sos = cheby2(N=7, rs=40, Wn=0.1, btype="low", output="sos")
+    # signal[(index + 2048):] = sosfiltfilt(sos, signal[(2048 + index):])
+    
+    # b,a = butter(N=7, Wn=0.5, btype="low")
+    # signal[turnOnIdx:(2048 + index)] = filtfilt(b, a, signal[turnOnIdx:(2048 + index)])
+
+    # b,a = butter(N=7, Wn=0.1, btype="low")
+    # signal[(2048 + index):] = filtfilt(b, a, signal[(2048 + index):])
+    
+plt.plot(franken_t, signal, label="after smooth")
+plt.legend()
+plt.show()
+
+
+
 
 # calculates torque signal integral
 torque_integral = np.trapezoid(signal, franken_t)
@@ -224,6 +269,7 @@ if(write_t == 1):
     np.savetxt(out_path, np.column_stack([franken_t[N_f//2:], np.real(signal[N_f//2:])]),
            delimiter=',', header='t,torque_signal', comments='')
     print("Signal saved to: ", out_path)
+
 
 if(plot_switch == 1):
     plot_analytical(full_t, full_y, phi_an(full_t), index)
