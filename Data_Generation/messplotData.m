@@ -90,47 +90,71 @@ hold on
 t = fullData(:,1);
 
 
+zeroLocation = zeros(1, trialCount);
+endLocation = zeros(1, trialCount);
+
 % Plots the shifted data
 for trial = 1:1:trialCount
     dataName = "Trial " + int2str(trial);
 
     tShift = (t - devDiff(trial));
+    % determine where "0" is for shifted time
+    zeroLocation(trial) = find((tShift == 0), 1, 'first');
+    endLocation(trial) = find((tShift >= 75), 1, 'first');
 
     plot(tShift, fullData(:,trial + 1), '-.', 'LineWidth', 2, 'DisplayName', dataName)
 end 
 
 
-% Defines common t domain
+maxCut = min(endLocation);
+minCut = min(zeroLocation);
+
+shiftedData = zeros( ( minCut - maxCut ), trialCount + 1);
+
+
+shiftedData(:,1) = t(1:min(endLocation));
+
+for trial = 2:1:trialCount + 1
+    i = zeroLocation(trial);
+    j = endLocation(trial);
+    % if(i > minCut)
+    %     i = i - 1;
+    % elseif(i < minCut)
+    %     i = i + 1;
+    shiftedData(:, trial) = fullData(i:j, trial);
+end 
+
+
+
+
+
 tCommon = t - max(devDiff);
-% Init mean data vector
 meanData = zeros(length(tCommon), 1);
 
-% Interpolates data onto new t domain
 for trial = 1:trialCount
     meanData = meanData + interp1(t - devDiff(trial), fullData(:, trial+1), tCommon, 'pchip');
 end
 
-% Determines where we want to cut time domain
-cutT = find(tCommon >= 0 & tCommon <= 75);
-% Determines mean on cut common time domain
-meanData = meanData(cutT) / trialCount;
-% Cuts common time domain
-tCommon = tCommon(cutT);
+where1 = find(tCommon > 0 & tCommon < 70);
+meanData = meanData(where1) / trialCount;
+tCommon = tCommon(where1);
 
-% Plots mean data
 plot(tCommon, meanData, '-', 'LineWidth', 2,  "DisplayName", "Mean of All Trials")
-hold off
-% Plot stuff
+
+
+
+
 legend()
 xlabel('Time (s)');
-ylabel('Angular Displacement (degrees)');
+ylabel('Angular Displacement (deg? - confirm units)');
 title('Trial Data Comparison');
 
 %%
 
-name = "forward_1500_meanData.csv";
+name = "forward_1500_trial1.csv";
 
-dataFinal = [tCommon, meanData];
+dataFinal = [t, fullData(:,1 + 1)];
+
 
 
 writematrix(dataFinal, name, "Delimiter", ',');
