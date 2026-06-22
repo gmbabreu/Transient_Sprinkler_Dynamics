@@ -64,6 +64,7 @@ def est_gamma(peak_index, x_peaks, y_peaks):
 def get_constants(gamma_est, omega_est, phi_t):
     # defining a constant that is used later
     gam = np.sqrt((omega_est*omega_est) - (gamma_est*gamma_est))
+    print("gam: ", gam)
 
     # In shifted coordinates tau = t - t_peak:
     # phi(tau) = e^(-gamma*tau) * (c1*cos(gam*tau) + c2*sin(gam*tau))
@@ -77,6 +78,7 @@ def get_constants(gamma_est, omega_est, phi_t):
 def fit_phi(t_seg, y_seg, gamma, w_0, c1, c2, t0):
     def ode_model(t, gamma, w0, c1, c2):
         wd = np.sqrt(w0**2 - gamma**2)
+        print("wd :", wd)
         return np.exp(-gamma * (t - t0)) * (c1 * np.cos(wd * (t - t0)) + c2 * np.sin(wd * (t - t0)))
 
     p0 = [gamma, w_0, c1, c2]

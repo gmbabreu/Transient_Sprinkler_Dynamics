@@ -60,7 +60,7 @@ def remove_noise(full_t, full_y, threshold):
     dy = np.abs(np.diff(full_y) / np.diff(full_t))  # derivative
     start_index = np.argmax(dy > threshold)
 
-    start_mean = full_y[len(full_y) - 1]#np.mean(full_y[:start_index])
+    start_mean = np.mean(full_y[:start_index])
     if (start_mean < 0):
         full_y[start_index:] += start_mean
     else:

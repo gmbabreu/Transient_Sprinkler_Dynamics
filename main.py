@@ -40,11 +40,11 @@ proc_data_switch = 1
 # define the spin direction of data to use
 # reads from data file name, i.e. for "forward_500_trail1" put "forward" here
 # rev for reverse and forward for forward
-spin_dir = "rev"
+spin_dir = "forward"
 
 # define reynolds number of data to use
 # reads from data file name, i.e. for "forward_500_trail1" put "500" here 
-re = "1000"
+re = "1500"
 
 # define trail number  of data to use
 # reads from data file name, i.e. for "forward_500_trail1" put "1" here 
@@ -109,7 +109,7 @@ full_t, full_y, N, t_peaks, y_peaks = read_data(fname)
 
 
 # lets user look at plot and define fitting target
-t_target = 49.07 #plot_data(full_t, full_y, 1)
+t_target = plot_data(full_t, full_y, 1)
 
 # lets user look at plot and define where we will input the data
 # this is only really used for the processing (which we dont do anymore)
@@ -179,7 +179,7 @@ def phi_an(t):
 idexComb = index
 # threshold is how much you want to clean the data! bigger = smoother ( .01 is nice for rev , 0.5 for forward )
 if(proc_data_switch == 1):
-    full_y = remove_noise(full_t, full_y, threshold=.01)
+    full_y = remove_noise(full_t, full_y, threshold=.5)
     idexComb = insert_index
     
 
