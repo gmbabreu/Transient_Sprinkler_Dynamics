@@ -4,6 +4,14 @@ clf
 close all 
 clear
 
+D = 50; % Fixed Distance from Camera to mirror at shortest point
+xC = 40000; % x position on ruler at shortest point (point where D is measured)
+% x0 is determined by code (?)
+% Here is where we can define a fixed array that is consistent with the
+% position of each pixel?
+inches_per_pixel = ARRAY; % Number of inches in frame over horizontal resolution
+
+
 for trial = [1, 2, 3]
     file = "1500f" + int2str(trial);
     
@@ -114,12 +122,12 @@ for trial = [1, 2, 3]
 
         % If first iteration, define zero as the mean x position of laser
         if findZero
-            zero = xMid;
+            x0 = xMid;
             findZero = false;
         end
 
-        % Apped current position to data array, normalized by zero position
-        position = [position; (xMid - zero)];
+        % Apped current position to data array
+        position = [position; xMid];
 
         % Define current time as i*dt
         t = [t; (i-1)*dt];
@@ -136,16 +144,19 @@ for trial = [1, 2, 3]
 
     %%
 
-    % Experimental setup hard-coded values from Kelly
-    fixed_distance = 49; % Distance from sprinkler mirror to ruler board
-    inches_per_pixel = 28/1920; % Number of inches in frame over horizontal resolution
+    % % OLD OLD OLD OLD
+    % % Experimental setup hard-coded values from Kelly
+    % fixed_distance = 49; % Distance from sprinkler mirror to ruler board
+    % inches_per_pixel = 28/1920; % Number of inches in frame over horizontal resolution
 
 
-    % Convert raw data from iamge to inches - position is the pixel index
+    % Convert raw data from image to inches - position is the pixel index
     inches = position*inches_per_pixel;% Convert horizontal pixel position to physical displacement (inches)
 
     % Convert inches to degrees
-    theta_all = 0.5*atan2(inches, fixed_distance)*180/pi; % For whole run
+    tan1 = atan2((inches - xC), D);
+    tan2 = atan2((x0 - xC), D);
+    theta_all = 0.5*(tan1 - tan2)*180/pi; % For whole run
 
 
     % Set up to write theta data to a txt file 
