@@ -6,14 +6,25 @@ clear
 
 D = 50; % Fixed Distance from Camera to mirror at shortest point
 xC = 40000; % x position on ruler at shortest point (point where D is measured)
-% x0 is determined by code (?)
-% Here is where we can define a fixed array that is consistent with the
-% position of each pixel?
-inches_per_pixel = ARRAY; % Number of inches in frame over horizontal resolution
+    % xC is in inches and must match the calibration-defined ruler units.
+saveData = true;
+
+overlayVideo = true;  % Save the overlayed video
+    overlayFrame = rand < 0;  % Save individual overlayed frames, default off
+circleRadius = 8;  
+circleThickness = 2;
 
 
-for trial = [1, 2, 3]
+for trial = [1, ]
     file = "1500f" + int2str(trial);
+    calibrationFile = file + "_rulerCalibration.mat";
+
+    if ~isfile(calibrationFile)
+        error("Missing calibration file " + calibrationFile + ". Run calibrateRulerAxis.m first.")
+    end
+
+    calibrationData = load(calibrationFile, "rulerCalibration");
+    rulerCalibration = calibrationData.rulerCalibration;
     
     %% GET FRAMES
     
@@ -39,13 +50,13 @@ for trial = [1, 2, 3]
 
  
     % saveFolder = file + "_frames/";
-    % 
+    
     % if ~isfolder(saveFolder)
     %     mkdir(saveFolder);
     % end
-    % 
+    
     % i = 1;
-    % 
+    
     % while hasFrame(v)
     %     img = readFrame(v);
     %     filename = sprintf("%03d",i)+".jpg";
@@ -73,10 +84,23 @@ for trial = [1, 2, 3]
     position = [];
     t = [];
 
-    % Video Initialization
-    vidName = file + "_maskedData.mp4";
-    V = VideoWriter(vidName, 'MPEG-4');
+    % Always save the masked video as before.
+    vidName = file + "_maskedData.avi";
+    V = VideoWriter(vidName, 'Motion JPEG AVI');
     open(V)
+
+    if overlayVideo
+        overlayVidName = file + "_overlayData.avi";
+        overlayV = VideoWriter(overlayVidName, 'Motion JPEG AVI');
+        open(overlayV)
+    end
+
+    if overlayFrame
+        overlayFolder = file + "_overlayFrames/";
+        if ~isfolder(overlayFolder)
+            mkdir(overlayFolder);
+        end
+    end
 
     while isfile(path)
         % Reads jpg as image matrix
@@ -86,13 +110,43 @@ for trial = [1, 2, 3]
         % Outputs a logical array (BW) and the masked image in color (matrix) 
         [BW,maskedImage] = ycbcrMask(img); 
 
-        % Writes masked image to a video 
+        % Find the predicted laser position from the masked pixels.
+        laserImage = sum(maskedImage, 3);
+        [laserRows, laserCols] = find(BW);
+        laserWeights = double(laserImage(BW));
+
+        if isempty(laserCols)
+            xMid = NaN;
+            yMid = NaN;
+        else
+            xMid = round(mean(laserCols, 'Weights', laserWeights));
+            yMid = round(mean(laserRows, 'Weights', laserWeights));
+        end
+
+        rulerInches = projectToRulerAxis([xMid, yMid], rulerCalibration);
+
+        % Overlay a hollow black circle on the original frame at the
+        % predicted laser location.
+        overlayImage = img;
+        if ~isnan(xMid) && ~isnan(yMid)
+            overlayImage = drawHollowBlackCircle(overlayImage, xMid, yMid, circleRadius, circleThickness);
+        end
+
         writeVideo(V, maskedImage)
+
+        if overlayVideo
+            writeVideo(overlayV, overlayImage)
+        end
+
+        if overlayFrame
+            frameName = sprintf("%03d", i) + ".jpg";
+            imwrite(overlayImage, overlayFolder + frameName);
+        end
 
         % This flattens the masked image from 3 dimensional to 2
         % dimensional. We don't care where the color is on the spectrum
         % after the mask, we simply care about its magnitude.
-        flattenImage = sum(maskedImage, 3); 
+        flattenImage = laserImage; 
 
         % Now we flatten the image in the y dimension, as we only care
         % about its position along the x axis
@@ -107,27 +161,20 @@ for trial = [1, 2, 3]
         % index defined in xCol.
         weight = xFlat(xCol);
 
-        % Flattens the logical array BW to the x dimension
-        xBW = mean(BW, 1);
-
-        % Same as above, just for BW image
-        [row, col] = find(xBW);
-
         % Takes means of BW image wrt axis, but for x position, we use the
         % magnitude of color at the position as a weight for a weighted
         % mean - the laser is more likely to be somewhere there is higher
         % magnitude of color than not. 
-        yMid = mean(row);
-        xMid = mean(col, 'Weights', weight);
+        % xMid and yMid are already computed from the full mask above.
 
-        % If first iteration, define zero as the mean x position of laser
+        % If first iteration, define zero as the ruler position of the laser
         if findZero
-            x0 = xMid;
+            x0 = rulerInches;
             findZero = false;
         end
 
         % Apped current position to data array
-        position = [position; xMid];
+        position = [position; rulerInches];
 
         % Define current time as i*dt
         t = [t; (i-1)*dt];
@@ -138,8 +185,11 @@ for trial = [1, 2, 3]
         path = cd + "/" + folder + filename;
     end
 
-    % Close maskedImage video
+    % Close output videos
     close(V)
+    if overlayVideo
+        close(overlayV)
+    end
 
 
     %%
@@ -150,48 +200,69 @@ for trial = [1, 2, 3]
     % inches_per_pixel = 28/1920; % Number of inches in frame over horizontal resolution
 
 
-    % Convert raw data from image to inches - position is the pixel index
-    inches = position*inches_per_pixel;% Convert horizontal pixel position to physical displacement (inches)
-
-    % Convert inches to degrees
-    tan1 = atan2((inches - xC), D);
+    % Convert ruler coordinates in inches to degrees.
+    tan1 = atan2((position - xC), D);
     tan2 = atan2((x0 - xC), D);
     theta_all = 0.5*(tan1 - tan2)*180/pi; % For whole run
 
 
-    % Set up to write theta data to a txt file 
-    name = file + "_data.txt";
-    dataFinal = [t, theta_all];
-    blocker = false;
+    if saveData
+        % Set up to write theta data to a txt file 
+        name = file + "_data.txt";
+        dataFinal = [t, theta_all];
+        blocker = false;
 
-    % This loop ensures user does not overwrite data. Does require user to
-    % manual say yes/no
-    if isfile(name)
-        disp("Previous data will be deleted, would you like to proceed? [yes/no]")
-        prompt = "=> ";
-        response = input(prompt, 's');
-        if response == "yes"
-            blocker = true;
-        elseif response == "no"
-                error("Please delete or move old data. Operation aborted by user")
-        else
-            prompt = "Please provide [yes/no], this is case and spacing senesitive";
+        % This loop ensures user does not overwrite data. Does require user to
+        % manual say yes/no
+        if isfile(name)
+            disp("Previous data will be deleted, would you like to proceed? [yes/no]")
+            prompt = "=> ";
             response = input(prompt, 's');
             if response == "yes"
                 blocker = true;
             elseif response == "no"
-                    error("Please delete or move old data. User has ended the code.")
+                    error("Please delete or move old data. Operation aborted by user")
+            else
+                prompt = "Please provide [yes/no], this is case and spacing senesitive";
+                response = input(prompt, 's');
+                if response == "yes"
+                    blocker = true;
+                elseif response == "no"
+                        error("Please delete or move old data. User has ended the code.")
+                end 
             end 
         end 
-    end 
 
-    if blocker
-        delete(name); % Delete old data if user confirmed
+        if blocker
+            delete(name); % Delete old data if user confirmed
+        end
+
+        % write theta data to a txt file 
+        writematrix(dataFinal, name, "Delimiter", '\t');
+        type(name);
     end
-
-    % write theta data to a txt file 
-    writematrix(dataFinal, name, "Delimiter", '\t');
-    type(name);
     
 
+end
+
+function outputImage = drawHollowBlackCircle(inputImage, centerX, centerY, radius, thickness)
+    outputImage = inputImage;
+    [imageHeight, imageWidth, ~] = size(outputImage);
+
+    [gridX, gridY] = meshgrid(1:imageWidth, 1:imageHeight);
+    distanceFromCenter = sqrt((gridX - centerX).^2 + (gridY - centerY).^2);
+    ringMask = distanceFromCenter >= (radius - thickness) & distanceFromCenter <= radius;
+
+    if isinteger(outputImage)
+        blackValue = intmax(class(outputImage));
+        blackValue = blackValue - blackValue;
+    else
+        blackValue = 0;
+    end
+
+    for channel = 1:size(outputImage, 3)
+        channelImage = outputImage(:,:,channel);
+        channelImage(ringMask) = blackValue;
+        outputImage(:,:,channel) = channelImage;
+    end
 end
