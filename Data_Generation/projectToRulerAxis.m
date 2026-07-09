@@ -1,20 +1,16 @@
-function rulerInches = projectToRulerAxis(pixelPosition, rulerCalibration)
-%PROJECTTORULERAXIS Project image coordinates onto the fitted ruler axis and convert to inches.
+function rulerInches = projectToRulerAxis(pixelPosition,rulerCalibration)
 
-if size(pixelPosition, 2) ~= 2
-    error("pixelPosition must be an N-by-2 array of [x y] coordinates.")
+x = pixelPosition(:,1);
+y = pixelPosition(:,2);
+
+% Warn if the laser drifts vertically from the calibrated camera axis.
+verticalError = abs(y-rulerCalibration.cameraY);
+
+if verticalError > 20
+    warning("Laser is %.1f pixels away from the calibrated camera axis.",verticalError)
 end
 
-origin = rulerCalibration.axisOrigin;
-axisDirection = rulerCalibration.axisDirection;
-axisDirection = axisDirection(:)';
-
-projectedDistance = (pixelPosition - origin) * axisDirection';
-
-if isfield(rulerCalibration, "pixelToInchCoefficients")
-    rulerInches = polyval(rulerCalibration.pixelToInchCoefficients, projectedDistance);
-else
-    rulerInches = projectedDistance;
-end
+% Convert horizontal coordinate to ruler inches.
+rulerInches = ppval(rulerCalibration.pixelToInchSpline,x);
 
 end
