@@ -68,7 +68,7 @@ cameraY = cameraY(1);
 
 %% HORIZONTAL PROJECTION CALIBRATION
 
-% For each ruler mark, compute where the horizontal line through cameraY intersects the ruler line.
+% For each ruler mark, compute where the horizontal line intersects the ruler line.
 projectedX = clickedX + (cameraY - clickedY)/axisSlope;
 
 % Fit a smooth mapping from projected horizontal pixel coordinate to inches.
@@ -78,7 +78,7 @@ pixelToInchSpline = pchip(projectedX, rulerValues);
 predictedInches = ppval(pixelToInchSpline, projectedX);
 
 % Compute calibration error.
-calibrationRmse = sqrt(mean((predictedInches(:)-rulerValues(:)).^2));
+error = sqrt(mean((predictedInches(:)-rulerValues(:)).^2));
 
 %% VISUALIZE AND SAVE
 
@@ -130,7 +130,7 @@ rulerCalibration.cameraY = cameraY;
 fprintf("\nCalibration fit:\n");
 fprintf("  ruler line: y = %.8f*x + %.8f\n",axisSlope,axisIntercept);
 fprintf("  pixel-to-inch mapping: PCHIP spline\n");
-fprintf("  calibration RMSE = %.6f inches\n",calibrationRmse);
+fprintf("  calibration error = %.6f inches\n",error);
 
 % Save the calibration next to the frame folder.
 % The saved MAT file is what generateData.m loads at runtime.

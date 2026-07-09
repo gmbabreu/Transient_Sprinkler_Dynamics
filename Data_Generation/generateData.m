@@ -17,14 +17,6 @@ circleThickness = 2;
 
 for trial = [1, ]
     file = "1500f" + int2str(trial);
-    calibrationFile = file + "_rulerCalibration.mat";
-
-    if ~isfile(calibrationFile)
-        error("Missing calibration file " + calibrationFile + ". Run calibrateRulerAxis.m first.")
-    end
-
-    calibrationData = load(calibrationFile, "rulerCalibration");
-    rulerCalibration = calibrationData.rulerCalibration;
     
     %% GET FRAMES
     
@@ -64,6 +56,16 @@ for trial = [1, ]
     %     imwrite(img,fullname)    % Write to a JPEG file (001.jpg, 002.jpg, ..., 121.jpg)
     %     i = i+1;
     % end
+
+    %% Calibration
+    calibrationFile = file + "_rulerCalibration.mat";
+
+    if ~isfile(calibrationFile)
+        error("Missing calibration file " + calibrationFile + ". Run calibrateRulerAxis.m first.")
+    end
+
+    calibrationData = load(calibrationFile, "rulerCalibration");
+    rulerCalibration = calibrationData.rulerCalibration;
   
     %% READ, MASK, NAD EXTRACT DATA
 
