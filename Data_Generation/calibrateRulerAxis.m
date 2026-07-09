@@ -68,12 +68,16 @@ cameraY = cameraY(1);
 
 %% HORIZONTAL PROJECTION CALIBRATION
 
-% Project every ruler mark horizontally onto the camera axis.
-% Fit a smooth monotone spline from horizontal pixel coordinate to ruler inches.
-pixelToInchSpline = pchip(clickedX,rulerValues);
+% For each ruler mark, compute where the horizontal line through cameraY intersects the ruler line.
+projectedX = clickedX + (cameraY - clickedY)/axisSlope;
 
-predictedInches = ppval(pixelToInchSpline,clickedX);
+% Fit a smooth mapping from projected horizontal pixel coordinate to inches.
+pixelToInchSpline = pchip(projectedX, rulerValues);
 
+% Evaluate the spline at the calibration points.
+predictedInches = ppval(pixelToInchSpline, projectedX);
+
+% Compute calibration error.
 calibrationRmse = sqrt(mean((predictedInches(:)-rulerValues(:)).^2));
 
 %% VISUALIZE AND SAVE
@@ -119,6 +123,7 @@ rulerCalibration.axisSlope = axisSlope;
 rulerCalibration.axisIntercept = axisIntercept;
 rulerCalibration.rulerValues = rulerValues;
 rulerCalibration.pixelToInchSpline = pixelToInchSpline;
+rulerCalibration.projectedX = projectedX;
 rulerCalibration.cameraY = cameraY;
 
 % Print the final pixel-to-inch relationship.
