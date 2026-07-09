@@ -2,9 +2,11 @@ clc
 close all
 clear
 
+%% SETUP 
+
 % Calibration settings.
 numPoints = 5;
-rulerValues = [34 33 32 31 30];
+rulerValues = [10, 14, 18, 22, 26]; % Ruler values in inches corresponding to clicked points
 
 if numel(rulerValues) ~= numPoints
     error("rulerValues must have the same number of entries as numPoints.")
@@ -24,6 +26,18 @@ end
 
 imageData = imread(imagePath);
 
+% Optionally undistort the calibration image if camera calibration data is available.
+cameraCalFile = "cameraParams.mat";
+useUndistort = isfile(cameraCalFile);
+if useUndistort
+    % Rectify lens distortion before the user clicks ruler points.
+    cameraData = load(cameraCalFile, "cameraParams");
+    cameraParams = cameraData.cameraParams;
+    imageData = undistortImage(imageData, cameraParams);
+end
+
+%% COLLECT CLICKS
+
 % Click the ruler points in image space.
 figure("Name", "Ruler Calibration", "Color", "w");
 imshow(imageData);
@@ -36,61 +50,85 @@ if numel(clickedX) < 2
     error("At least two points are required to fit the ruler axis.")
 end
 
-axisOrigin = mean(clickedPoints, 1);
-centeredPoints = clickedPoints - axisOrigin;
-[~, ~, singularVectors] = svd(centeredPoints, 'econ');
-axisDirection = singularVectors(:, 1)';
 
-if dot(clickedPoints(end, :) - clickedPoints(1, :), axisDirection) < 0
-    axisDirection = -axisDirection;
-end
+%% FIT RULER AXIS
 
-% Project clicks onto the fitted ruler axis and fit pixels to inches.
-projectedDistances = (clickedPoints - clickedPoints(1, :)) * axisDirection';
-pixelToInchCoefficients = polyfit(projectedDistances, rulerValues, 1);
+% Fit the ruler axis with polyfit
+% This gives a simple line model y = mx + b in image coordinates.
+lineCoefficients = polyfit(clickedPoints(:, 1), clickedPoints(:, 2), 1);
+axisSlope = lineCoefficients(1);
+axisIntercept = lineCoefficients(2);
+
+%% CAMERA AXIS
+
+title("Click the origin position")
+
+[~,cameraY] = ginput(1);
+cameraY = cameraY(1);
+
+%% HORIZONTAL PROJECTION CALIBRATION
+
+% Project every ruler mark horizontally onto the camera axis.
+% Fit a smooth monotone spline from horizontal pixel coordinate to ruler inches.
+pixelToInchSpline = pchip(clickedX,rulerValues);
+
+predictedInches = ppval(pixelToInchSpline,clickedX);
+
+calibrationRmse = sqrt(mean((predictedInches(:)-rulerValues(:)).^2));
+
+%% VISUALIZE AND SAVE
 
 % Visualize the fitted axis on the image.
+figure("Name","Calibration","Color","w");
+imshow(imageData)
 hold on
-lineHalfLength = max(abs(projectedDistances)) + 50;
-lineStart = axisOrigin - lineHalfLength * axisDirection;
-lineEnd = axisOrigin + lineHalfLength * axisDirection;
-plot(clickedPoints(:, 1), clickedPoints(:, 2), 'yo', 'MarkerSize', 8, 'LineWidth', 1.5)
-plot([lineStart(1), lineEnd(1)], [lineStart(2), lineEnd(2)], 'c-', 'LineWidth', 2)
-for pointIndex = 1:size(clickedPoints, 1)
-    text(clickedPoints(pointIndex, 1) + 5, clickedPoints(pointIndex, 2), sprintf('%.0f', rulerValues(pointIndex)), ...
-        'Color', 'w', 'FontWeight', 'bold')
+
+% Draw the fitted ruler line.
+xPlot = linspace(1,size(imageData,2),400);
+plot(xPlot,...
+     axisSlope*xPlot + axisIntercept,...
+     'c-','LineWidth',2)
+
+% Draw the horizontal camera axis.
+plot(xPlot,...
+     cameraY*ones(size(xPlot)),...
+     'r--','LineWidth',2)
+
+% Show the clicked ruler points.
+plot(clickedX,clickedY,...
+     'yo',...
+     'MarkerFaceColor','y',...
+     'MarkerSize',8)
+
+% Label the ruler values.
+for k = 1:numPoints
+    text(clickedX(k)+5,...
+         clickedY(k),...
+         sprintf("%.0f",rulerValues(k)),...
+         "Color","w",...
+         "FontWeight","bold");
 end
+
 hold off
 
-% Plot the calibration fit in pixels vs inches.
-figure("Name", "Projected Ruler Distances", "Color", "w");
-plot(projectedDistances, rulerValues, 'ko', 'LineWidth', 1.5, 'MarkerFaceColor', 'k')
-hold on
-fitDistances = linspace(min(projectedDistances), max(projectedDistances), 100);
-plot(fitDistances, polyval(pixelToInchCoefficients, fitDistances), 'c-', 'LineWidth', 2)
-hold off
-xlabel("Distance along ruler axis (pixels)")
-ylabel("Ruler value (inches)")
-grid on
-
+% Store the calibration outputs that generateData.m needs later.
 rulerCalibration = struct();
 rulerCalibration.imagePath = imagePath;
 rulerCalibration.clickedPoints = clickedPoints;
-rulerCalibration.axisOrigin = axisOrigin;
-rulerCalibration.axisDirection = axisDirection;
-rulerCalibration.projectedDistances = projectedDistances;
+rulerCalibration.axisSlope = axisSlope;
+rulerCalibration.axisIntercept = axisIntercept;
 rulerCalibration.rulerValues = rulerValues;
-rulerCalibration.pixelToInchCoefficients = pixelToInchCoefficients;
+rulerCalibration.pixelToInchSpline = pixelToInchSpline;
+rulerCalibration.cameraY = cameraY;
 
 % Print the final pixel-to-inch relationship.
-pixelToInchSlope = pixelToInchCoefficients(1);
-pixelToInchIntercept = pixelToInchCoefficients(2);
-
 fprintf("\nCalibration fit:\n");
-fprintf("  inches = %.8f * pixelDistance + %.8f\n", pixelToInchSlope, pixelToInchIntercept);
-fprintf("  effective inches per pixel along ruler axis: %.8f\n", pixelToInchSlope);
+fprintf("  ruler line: y = %.8f*x + %.8f\n",axisSlope,axisIntercept);
+fprintf("  pixel-to-inch mapping: PCHIP spline\n");
+fprintf("  calibration RMSE = %.6f inches\n",calibrationRmse);
 
 % Save the calibration next to the frame folder.
+% The saved MAT file is what generateData.m loads at runtime.
 [imageFolder, ~, ~] = fileparts(imagePath);
 [parentFolder, frameFolder, ~] = fileparts(imageFolder);
 if endsWith(frameFolder, "_frames")
