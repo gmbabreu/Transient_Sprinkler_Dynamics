@@ -3,14 +3,13 @@ function rulerInches = projectToRulerAxis(pixelPosition,rulerCalibration)
 x = pixelPosition(:,1);
 y = pixelPosition(:,2);
 
-% Warn if the laser drifts vertically from the calibrated camera axis.
-verticalError = abs(y-rulerCalibration.cameraY);
+m = rulerCalibration.axisSlope;
+cameraY = rulerCalibration.cameraY;
 
-if verticalError > 20
-    warning("Laser is %.1f pixels away from the calibrated camera axis.",verticalError)
-end
+% Move the detected laser horizontally onto the camera axis.
+xProjected = x + (cameraY - y)/m;
 
-% Convert horizontal coordinate to ruler inches.
-rulerInches = ppval(rulerCalibration.pixelToInchSpline,x);
+% Convert projected x-coordinate to ruler inches.
+rulerInches = ppval(rulerCalibration.pixelToInchSpline,xProjected);
 
 end
