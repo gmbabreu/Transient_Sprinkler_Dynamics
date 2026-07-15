@@ -22,64 +22,45 @@ torque = mass * g * 2 * a;
 
 forward = [5, 8.375, 11.375, 15, 18, 21.875, 24.75, 28.125, 32];
 backward = [6.625, 9.75, 11.625, 15.375, 18.25, 21.75, 24.75, 28.375, 31.875];
+
 % Join both
+position = [forward backward];
+torque = [torque torque];
 
 %% Convert ruler position to mirror angle (radians)
-
-thetaForward = atan((forward - xC)/D)/2;
-thetaBackward = atan((backward - xC)/D)/2;
-thetaMean = (thetaForward + thetaBackward)/2;
+theta = atan((position - xC)/D)/2;
 
 %% Linear fits
-
-forwardFit = polyfit(thetaForward, torque, 1);
-backwardFit = polyfit(thetaBackward, torque, 1);
-meanFit = polyfit(thetaMean, torque, 1);
-
-%% Evaluate fitted lines
+fit = polyfit(theta, torque, 1);
 
 thetaPlot = linspace( ...
-    min([thetaForward thetaBackward]), ...
-    max([thetaForward thetaBackward]), ...
+    min([theta ]), ...
+    max([theta ]), ...
     200);
 
-forwardLine = polyval(forwardFit, thetaPlot);
-backwardLine = polyval(backwardFit, thetaPlot);
-meanLine = polyval(meanFit, thetaPlot);
+line = polyval(fit, thetaPlot);
 
 %% Plot
 
 figure
 hold on
 
-plot(thetaForward, torque, 'bo', 'MarkerFaceColor','b')
-plot(thetaBackward, torque, 'ro', 'MarkerFaceColor','r')
+plot(theta, torque, 'bo', 'MarkerFaceColor','b')
 
-plot(thetaPlot, meanLine, 'k-', 'LineWidth',2)
+plot(thetaPlot, line, 'k-', 'LineWidth',2)
 
 xlabel('\theta (radians)')
 ylabel('Torque (g*cm)')
-legend('Forward','Backward', ...
-       'Mean fit', ...
+legend('theta', ...
+       'fit', ...
        'Location','best')
 
 grid on
 
 %% Print calibration constants
 
-fprintf("\nForward:\n");
 fprintf("Weight = %.6f * theta + %.6f\n", ...
-    forwardFit(1), forwardFit(2));
-
-fprintf("\nBackward:\n");
-fprintf("Weight = %.6f * theta + %.6f\n", ...
-    backwardFit(1), backwardFit(2));
-
-fprintf("\nMean:\n");
-fprintf("Weight = %.6f * theta + %.6f\n", ...
-    meanFit(1), meanFit(2));
+    fit(1), fit(2));
 
 fprintf("\nSpring calibration coefficients (dyn*cm/rad):\n");
-fprintf("Forward : %.6f\n", forwardFit(1));
-fprintf("Backward: %.6f\n", backwardFit(1));
-fprintf("Mean    : %.6f\n", meanFit(1));
+fprintf("%.6f\n", fit(1));
