@@ -1,15 +1,15 @@
-function rulerInches = projectToRulerAxis(pixelPosition,rulerCalibration)
+function inches = projectToRulerAxis(pixelPosition,rulerCalibration)
 
-x = pixelPosition(:,1);
-y = pixelPosition(:,2);
+origin = rulerCalibration.originPoint;
+direction = rulerCalibration.axisDirection;
 
-m = rulerCalibration.axisSlope;
-cameraY = rulerCalibration.cameraY;
+% Signed distance along the ruler
+pixelDistance = (pixelPosition-origin)*direction';
 
-% Move the detected laser horizontally onto the camera axis.
-xProjected = x + (cameraY - y)/m;
+% Convert pixel distance to physical distance
+distance = ppval(rulerCalibration.pixelToDistanceSpline,pixelDistance);
 
-% Convert projected x-coordinate to ruler inches.
-rulerInches = ppval(rulerCalibration.pixelToInchSpline,xProjected);
+% Convert to absolute ruler reading
+inches = rulerCalibration.originValue + distance;
 
 end
