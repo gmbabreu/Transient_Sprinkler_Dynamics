@@ -6,3 +6,5 @@
 *.mat
 *.avi
 *.mov
+*trials/
+*.MTS

@@ -3,17 +3,13 @@ close all
 clear
 
 %% SETUP
+file = "frame"
+rulerValues = [8 10 14 17.5 22 26 28];
+numPoints = numel(rulerValues);
 
-numPoints = 9;
-rulerValues = [8 10 12 14 18 22 24 26 28];
+originValue = 17.5;          % Physical value chosen as xC
 
-originValue = 18;          % Physical value chosen as xC
-
-if numel(rulerValues) ~= numPoints
-    error("Incorrect ruler values.")
-end
-
-imageData = imread("1500f1_frames/001.jpg");
+imageData = imread(file + ".jpg");
 
 %% COLLECT CLICKS
 
@@ -112,5 +108,5 @@ rulerCalibration.originValue = originValue;
 
 rulerCalibration.pixelToDistanceSpline = pixelToDistanceSpline;
 
-save("1500f1_rulerCalibration.mat","rulerCalibration")
+save(file + "_rulerCalibration.mat","rulerCalibration")
 

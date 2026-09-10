@@ -14,16 +14,16 @@ function [BW,maskedRGBImage] = ycbcrMask(RGB)
 I = rgb2ycbcr(RGB);
 
 % Define thresholds for channel 1 based on histogram settings
-channel1Min = 146.000;
-channel1Max = 221.000;
+channel1Min = 100.000;
+channel1Max = 230.000;
 
 % Define thresholds for channel 2 based on histogram settings
-channel2Min = 110.000;
-channel2Max = 138.000;
+channel2Min = 95.000;
+channel2Max = 125.000;
 
 % Define thresholds for channel 3 based on histogram settings
-channel3Min = 138.000;
-channel3Max = 165.000;
+channel3Min = 160.000;
+channel3Max = 210.000;
 
 % Create mask based on chosen histogram thresholds
 sliderBW = (I(:,:,1) >= channel1Min ) & (I(:,:,1) <= channel1Max) & ...

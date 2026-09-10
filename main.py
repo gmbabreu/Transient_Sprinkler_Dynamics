@@ -40,20 +40,18 @@ proc_data_switch = 1
 # define the spin direction of data to use
 # reads from data file name, i.e. for "forward_500_trail1" put "forward" here
 # rev for reverse and forward for forward
-spin_dir = "forward"
+spin_dir = "r"
 
 # define reynolds number of data to use
 # reads from data file name, i.e. for "forward_500_trail1" put "500" here 
-re = "1500"
+re = "1000"
 
 # define trail number  of data to use
 # reads from data file name, i.e. for "forward_500_trail1" put "1" here 
 trial = 1
 
 # define where data is stored on local machine
-data_dir = "/Users/rachelbertaud/code/Sprinkler/Transient_Dynamics/Sprinkler_Data/"
-data_dir = "C:/Users/gabreu/Desktop/Transient_Dynamics/Sprinkler_Data/"
-data_dir = "C:\\Users\\gabreu\\Desktop\\Transient_Sprinkler_Dynamics\\Sprinkler_Data"
+data_dir = "C:\\Users\\gabreu\\Desktop\\Transient_Sprinkler_Dynamics\\Data_Generation\\Data"
 lowpass_switch = 1
 
 # Spring constant in dyn cm/rad
@@ -90,7 +88,7 @@ from fft_funcs import torque_solver, phi_from_torque
 ###################################################################################################
 
 os.chdir(data_dir)
-data_name = spin_dir + "_" + re + "_trial" + str(trial)
+data_name = re + spin_dir + str(trial) + "_data"
 fname = data_name + ".csv"
 
 print("------------------------------")
@@ -100,9 +98,9 @@ if(fit_switch == 1):
 if(proc_data_switch == 1):
     print("Data is being processed!")
 
-if spin_dir == "forward":
+if spin_dir == "f":
     spin_switch = 1
-elif spin_dir == "rev":
+elif spin_dir == "r":
     spin_switch = 0
 else:
     raise ValueError(f"Invalid direction '{parts[0]}' in file name - please use 'forward' or 'rev'")

@@ -12,13 +12,16 @@ overlayVideo = true;  % Save the overlayed video
 circleRadius = 8;  
 circleThickness = 2;
 
+%% Calibration
+calibrationFile = "frame_rulerCalibration.mat";
+
 trialCount = 1;
 
 for trial = 1:1:trialCount
-    file = "1500f" + int2str(trial);
+    file = "1000f" + int2str(trial);
     
     % Get movie data
-    mov_name = file + ".mov";
+    mov_name = "trials/" + file + ".MTS";
     
     if ~isfile(mov_name)
         error(mov_name + " is not in working directory. Please move move or code to working directory!")
@@ -28,9 +31,7 @@ for trial = 1:1:trialCount
     v = VideoReader(mov_name); 
     fps = v.FrameRate;
     dt = 1/fps; % Time step size
-    
-    %% Calibration
-    calibrationFile = file + "_rulerCalibration.mat";
+    fprintf("Time step size is %.4f seconds\n", dt);
 
     if ~isfile(calibrationFile)
         error("Missing calibration file " + calibrationFile + ". Run calibrateRulerAxis.m first.")
@@ -42,7 +43,7 @@ for trial = 1:1:trialCount
   
     %% READ, MASK, NAD EXTRACT DATA
 
-    folder = file + "_frames/";
+    folder = fullfile("frames", file + "_frames");
 
     pink = [170/225, 22/225, 181/225]; % Some colors I like
     darkpink = [137/225, 18/225, 145/225];
@@ -50,7 +51,11 @@ for trial = 1:1:trialCount
     % Defining loops for names to read through frames
     i = 1;
     filename = sprintf("%03d",i)+".jpg";
-    path = cd + "/" + folder + filename;
+    path = fullfile(pwd, folder, filename);
+
+    if ~isfile(path)
+        error("First frame not found: " + path + ". Run save_frames.m for this trial first.");
+    end
 
     % This will enter a loop to define the starting x-position as "0"
     findZero = true;
@@ -60,18 +65,25 @@ for trial = 1:1:trialCount
     t = [];
 
     % Always save the masked video as before.
-    vidName = file + "_maskedData.avi";
-    V = VideoWriter(vidName, 'Motion JPEG AVI');
+    if ~isfolder("data")
+        mkdir("data");
+    end
+    vidName = "data/" + file + "_maskedData.mp4";
+    V = VideoWriter(vidName, 'MPEG-4');
+    V.FrameRate = fps;
+    V.Quality = 95;
     open(V)
 
     if overlayVideo
-        overlayVidName = file + "_overlayData.avi";
-        overlayV = VideoWriter(overlayVidName, 'Motion JPEG AVI');
+        overlayVidName = "data/" + file + "_overlayData.mp4";
+        overlayV = VideoWriter(overlayVidName, 'MPEG-4');
+        overlayV.FrameRate = fps;
+        overlayV.Quality = 95;
         open(overlayV)
     end
 
     if overlayFrame
-        overlayFolder = file + "_overlayFrames/";
+        overlayFolder = "data/" + file + "_overlayFrames/";
         if ~isfolder(overlayFolder)
             mkdir(overlayFolder);
         end
@@ -143,9 +155,13 @@ for trial = 1:1:trialCount
         % xMid and yMid are already computed from the full mask above.
 
         % If first iteration, define zero as the ruler position of the laser
-        if findZero
+        if findZero && isfinite(rulerInches)
             x0 = rulerInches;
             findZero = false;
+        end
+
+        if findZero
+            error("Laser was never detected; could not define x0.")
         end
 
         % Apped current position to data array
@@ -157,7 +173,7 @@ for trial = 1:1:trialCount
         % Update i, filename, and path before next loop
         i = i + 1;
         filename = sprintf("%03d",i)+".jpg";
-        path = cd + "/" + folder + filename;
+        path = fullfile(folder, filename);
     end
 
     % Close output videos
@@ -183,7 +199,7 @@ for trial = 1:1:trialCount
 
     if saveData
         % Set up to write theta data to a txt file 
-        name = file + "_data.txt";
+        name = fullfile("data", file + "_data.csv");
         dataFinal = [t, theta_all];
         blocker = false;
 
@@ -213,7 +229,9 @@ for trial = 1:1:trialCount
         end
 
         % write theta data to a txt file 
-        writematrix(dataFinal, name, "Delimiter", '\t');
+        outputTable = array2table(dataFinal, ...
+            'VariableNames', {'time_seconds', 'angle_degrees'});
+        writetable(outputTable, name);
         type(name);
     end
     

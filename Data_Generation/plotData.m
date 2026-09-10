@@ -1,137 +1,163 @@
 clc; clear; clf; close all;
 
 trialCount = 1;
-file = "1500f";
+file = "1000r";
 
-dt = 0.03366666;
+motionThreshold = 2;   % degrees / second
 
+%% READ ALL TRIALS
 
+trialData = cell(1, trialCount);
 
-% The following code ensures all he data is the same length so we can plot
-% it on the same plot - if there is data that is longer/shorter than
-% another, it inputs NaNs
+for trial = 1:trialCount
+    name = "data/" + file + int2str(trial) + "_data.csv";
+    trialData{trial} = readmatrix(name);
+end
 
-for trial = 1:1:trialCount
-    name = file + int2str(trial) + "_data.txt";
-    data = readmatrix(name);
-    
-    % Defines "standard" length of data as that of trial 1
-    if trial == 1
-        fullData = data;
-        N = length(data(:,1));
-    else
-        if(length(data(:,1)) ~= N)
-            nShort = length(data(:,1));
-            inN = N - nShort;
+% Get dt from the actual saved timestamps
+dt = median(diff(trialData{1}(:,1)));
 
-            if(inN < 0)
-                % If trial data is longer, put extended time and NaNs in full data 
-                % for all trails before
-                fullData = [fullData; data(N+1:end, 1), NaN(abs(inN), trial-1)];
-            else
-                % If trial data is shorter, pad it with NaNs
-                data(:,2) = [data(:,2); NaN(inN, 1)];
-            end
-        end
-
-        % Append trials data to full data
-        fullData = [fullData, data(:, 2)];
-    end 
-end 
+fprintf("dt = %.6f s\n", dt);
 
 
+%% FIND WHEN MOTION STARTS IN EACH TRIAL
 
-% The following is an attempt to put the data on the same time scale - as
-% they all start at different times
+devLoc = zeros(1, trialCount);
+devTime = zeros(1, trialCount);
 
-% kelly is suggesting using video to hear when the pump starts and use that
-% for the time lag 
+for trial = 1:trialCount
 
-% is there a better way to do this shifting? Are we assuming too much here?
+    tTrial = trialData{trial}(:,1);
+    thetaTrial = trialData{trial}(:,2);
+
+    % Angular velocity estimate
+    deriv = gradient(thetaTrial, tTrial);
+
+    % Use ABSOLUTE derivative so this works for forward and reverse
+    idx = find(abs(deriv) > motionThreshold, 1, 'first');
+
+    if isempty(idx)
+        error("No motion detected in trial %d", trial);
+    end
+
+    devLoc(trial) = idx;
+    devTime(trial) = tTrial(idx);
+end
+
+disp("Detected motion start times:")
+disp(devTime)
 
 
-% Define Nx and Ny for full data set
-[Nx, Ny] = size(fullData);
+%% ALIGN TRIALS
 
-% Init an array to store a derivative estimate
-deriv = zeros(Nx - 1, Ny - 1);
+% Earliest detected start
+earliestStart = min(devTime);
 
-% Set same time scale for deriv and full data set
-deriv(:, 1) = fullData(2:end, 1);
+% Amount each trial should be shifted left
+devDiff = devTime - earliestStart;
 
-% derivate estimate 
-for i = 2:1:Nx - 1
-    deriv(i,2:trialCount + 1) = (fullData(i + 1,2:trialCount + 1) - fullData(i - 1,2:trialCount + 1))/(2*dt);
-end 
+fprintf("Time shifts:\n")
+disp(devDiff)
 
-% This finds the first location where the derivative is greater than zero
-% for each trial - starts at 2 bc t is stored in 1
-devLoc = [];
-for i = 2:1:trialCount + 1
-    devLoc = [devLoc, find(deriv(:,i) > 1, 1, 'first')];
-end 
 
-% Find the minimum time for all traisl - so whichever trial started first
-minIdx = find(min(devLoc));
-% 
-% % Defines how many time steps are between each trial
-% devDiffPre = (devLoc - devLoc(minIdx));
+%% DETERMINE COMMON TIME DOMAIN
 
-% Shifts all data to start at the minimum start time
-devDiff = (devLoc - devLoc(minIdx))*dt;
+% Find the latest time available after shifting for each trial
+endTimes = zeros(1, trialCount);
 
-% Defines a figure
+for trial = 1:trialCount
+    tTrial = trialData{trial}(:,1);
+    tShift = tTrial - devDiff(trial);
+
+    endTimes(trial) = max(tShift);
+end
+
+% Only use times for which EVERY trial has data
+commonEnd = min(endTimes);
+
+tCommon = (0:dt:commonEnd)';
+
+
+%% INTERPOLATE EACH TRIAL ONTO COMMON TIME GRID
+
+interpData = NaN(length(tCommon), trialCount);
+
+for trial = 1:trialCount
+
+    tTrial = trialData{trial}(:,1);
+    thetaTrial = trialData{trial}(:,2);
+
+    tShift = tTrial - devDiff(trial);
+
+    % Ignore any NaNs that may occur in the raw data
+    valid = isfinite(tShift) & isfinite(thetaTrial);
+
+    interpData(:,trial) = interp1( ...
+        tShift(valid), ...
+        thetaTrial(valid), ...
+        tCommon, ...
+        'pchip', ...
+        NaN);
+end
+
+
+%% KEEP ONLY POINTS VALID FOR ALL THREE TRIALS
+
+allValid = all(isfinite(interpData), 2);
+
+tCommon = tCommon(allValid);
+interpData = interpData(allValid,:);
+
+
+%% COMPUTE MEAN
+
+meanData = mean(interpData, 2);
+
+
+%% PLOT
+
 f = figure(1);
 f.Theme = "Light";
 
+hold on
 
-hold on 
-
-t = fullData(:,1);
-
-
-% Plots the shifted data
-for trial = 1:1:trialCount
-    dataName = "Trial " + int2str(trial);
-
-    tShift = (t - devDiff(trial));
-
-    plot(tShift, fullData(:,trial + 1), '-.', 'LineWidth', 2, 'DisplayName', dataName)
-end 
-
-
-% Defines common t domain
-tCommon = t - max(devDiff);
-% Init mean data vector
-meanData = zeros(length(tCommon), 1);
-
-% Interpolates data onto new t domain
+% Plot shifted raw trials
 for trial = 1:trialCount
-    meanData = meanData + interp1(t - devDiff(trial), fullData(:, trial+1), tCommon, 'pchip');
+
+    tTrial = trialData{trial}(:,1);
+    thetaTrial = trialData{trial}(:,2);
+
+    tShift = tTrial - devDiff(trial);
+
+    plot( ...
+        tShift, ...
+        thetaTrial, ...
+        '-.', ...
+        'LineWidth', 1.5, ...
+        'DisplayName', "Trial " + int2str(trial));
 end
 
-% Determines where we want to cut time domain
-cutT = find(tCommon >= 0 & tCommon <= 75);
-% Determines mean on cut common time domain
-meanData = meanData(cutT) / trialCount;
-% Cuts common time domain
-tCommon = tCommon(cutT);
+% Plot mean
+plot( ...
+    tCommon, ...
+    meanData, ...
+    '-', ...
+    'LineWidth', 2.5, ...
+    'DisplayName', "Mean of All Trials");
 
-% Plots mean data
-plot(tCommon, meanData, '-', 'LineWidth', 2,  "DisplayName", "Mean of All Trials")
 hold off
-% Plot stuff
+
 legend()
 xlabel('Time (s)');
 ylabel('Angular Displacement (degrees)');
 title('Trial Data Comparison');
 
-%%
 
-name = "forward_1500_meanData.csv";
+%% SAVE MEAN DATA
+
+name = "data/" + file + "_meanData.csv";
 
 dataFinal = [tCommon, meanData];
-
 
 writematrix(dataFinal, name, "Delimiter", ',');
 type(name);
