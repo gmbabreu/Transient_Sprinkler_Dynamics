@@ -24,6 +24,9 @@
 # SECTION ZERO - USER DEFINED INPUTS
 ###################################################################################################
 
+# experimental spring constant kappa
+kappa = 10 # units of dyn * cm (g * cm^2/s^2)
+
 # switches plots on (1) or off (0)
 plot_switch = 1
 
@@ -72,7 +75,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'Main_Functions'))
 from dataread_funcs import read_data, plot_data, fit_segments
 
 # ESTIMATE FUNCS
-from estimate_funcs import est_omega_d, est_gamma, get_constants, fit_phi
+from estimate_funcs import est_a, est_b, get_constants, fit_phi
 
 # PROCESS FUNCS
 from process_funcs import combine_data, remove_noise
@@ -98,6 +101,8 @@ if(fit_switch == 1):
 if(proc_data_switch == 1):
     print("Data is being processed!")
 
+print("Data incoming is in degrees and being converted to radians!!")
+
 if spin_dir == "f":
     spin_switch = 1
 elif spin_dir == "r":
@@ -106,116 +111,104 @@ else:
     raise ValueError(f"Invalid direction '{parts[0]}' in file name - please use 'forward' or 'rev'")
 
 
-# read data for x,y data, get size of data, and find peaks of data
-full_t, full_y, N, t_peaks, y_peaks = read_data(fname)
+# read data for time t, angle phi  data, get size of data, and find peaks of data
+full_t, full_phi, N, t_peaks, phi_peaks = read_data(fname) # converts from degrees to radians
 
 
-# lets user look at plot and define fitting target
-t_target = plot_data(full_t, full_y, 1)
+# lets user look at plot and define fitting target point t_fit (t_f)
+t_fit = 47.05 #plot_data(full_t, full_phi, 1)
 
-# lets user look at plot and define where we will input the data
-# this is only really used for the processing (which we dont do anymore)
-
-t_insert = full_t.max() 
-# t_insert = 54.08 # plot_data(full_t, full_y, 0)
-
-
-# returns segment of t and y after UD time for fitting target
-index, peak_index, insert_index, t_seg, y_seg = fit_segments(full_t, full_y, t_peaks, t_target, t_insert)
+# returns segment of t and phi after user defined time for fitting target
+fit_index,fit_peaks_index, t_fit, t_seg, phi_seg = fit_segments(full_t, full_phi, t_peaks, t_fit)
 
 # SECTION TWO - ESTIMATE OMEGA AND GAMMA
 ###################################################################################################
 
-# estimates period from data
-omega_d = est_omega_d(peak_index, t_insert, t_peaks)
+# estimates a from data
+a_est = est_a(fit_peaks_index, t_fit, t_peaks)
 
-# estimates gamma from data
-gamma_est = est_gamma(peak_index, t_peaks, y_peaks)
+# estimates b from data
+b_est = est_b(fit_peaks_index, t_peaks, phi_peaks)
 
 
-# estimate omega from period and gamma
-omega_est = np.sqrt((omega_d*omega_d) + (gamma_est*gamma_est))
+# estimate c from a and b
+c_est = np.sqrt((a_est*a_est) + (b_est*b_est))
 
 # gets constants for ODE using ours estimates for gamma and omega
 # given fit t value
-c1_est, c2_est = get_constants(gamma_est, omega_est, full_y[index])
+C1_est, C2_est = get_constants(b_est, c_est, full_phi[fit_index])
 
 print("---------------------------------------")
 print("-----ESTIMATES FROM DATA (NO FIT)_-----")
 print("---------------------------------------")
-print("Estimate of gamma: ", gamma_est)
-print("Estimate of omega: ", omega_est)
-# print("Estimate of c1: ", c1_est)
-# print("Estimate of c2: ", c2_est)
+print("Estimate of b: ", b_est)
+print("Estimate of c: ", c_est)
 
 # if user wants a fit...
 if(fit_switch == 1):
     # fit the data
-    gamma, omega, c1, c2 = fit_phi(t_seg, y_seg, gamma_est, omega_est, c1_est, c2_est, full_t[index])
+    b, c, C_1, C_2 = fit_phi(t_seg, phi_seg, b_est, c_est, C1_est, C2_est, full_t[fit_index])
     print("------------------------------")
     print("-------VALUES AFTER FIT-------")
     print("------------------------------")
-    print("Gamma: ", gamma)
-    print("Omega: ", omega)
-    # print("c1: ", c1)
-    # print("c2: ", c2)
+    print("b: ", b)
+    print("c: ", c)
     print("------------------------------")
     
 
 else:
-    # set end values as estimates
-    gamma = gamma_est
-    omega = omega_est
-    c1 = c1_est
-    c2 = c2_est
+    # set end values as estimates if no fit
+    b = b_est
+    c = c_est
+    C_1 = C1_est
+    C_2 = C2_est
     
 # define the analytical solution in terms of new found values
 def phi_an(t):
-    t0 = t_peaks[peak_index]
-    wd = np.sqrt(omega**2 - gamma**2)
-    return np.exp(-gamma * (t - t0)) * (c1 * np.cos(wd * (t - t0)) + c2 * np.sin(wd * (t - t0)))
+    t0 = t_peaks[fit_peaks_index]
+    a = np.sqrt(c**2 - b**2)
+    return np.exp(-b * (t - t0)) * (C_1 * np.cos(a * (t - t0)) + C_2 * np.sin(a * (t - t0)))
 
 # SECTION THREE - CLEANS NOISE FROM DATA
 ###################################################################################################
 
-idexComb = index
+idexComb = fit_index
 # threshold is how much you want to clean the data! bigger = smoother ( .01 is nice for rev , 0.5 for forward )
 if(proc_data_switch == 1):
-    full_y = remove_noise(full_t, full_y, threshold=.5)
-    idexComb = insert_index
+    full_phi = remove_noise(full_t, full_phi, threshold=.5)
     
 
 
-franken_t, franken_y, t_end = combine_data(full_t, full_y, idexComb, phi_an, proc_data_switch)
+fourier_t, fourier_phi, t_end = combine_data(full_t, full_phi, phi_an, proc_data_switch)
 
 # SECTION FOUR - FOURIER TRANSFORM
 ###################################################################################################
 
-N_f = len(franken_y)
-L = franken_t[-1] - franken_t[0]
+N_f = 2*2048
+L = fourier_t[-1] - fourier_t[0]
 h = L/N_f
 
 # outputs extracted torque signal
-signal = torque_solver(N_f, gamma, omega, L, franken_y)
+extracted_torque = torque_solver(N_f, b, c, L, fourier_phi)
 
 stopper = False
-for i in range(len(franken_y)):
+for i in range(len(fourier_phi)):
     if stopper:
         break
     else:
-        if (franken_y[i] != 0):
+        if (fourier_phi[i] != 0):
             turnOnIdx = i - 2048
             stopper = True
         
-print("turnOnIdx :", turnOnIdx)
-print("index: ", index)
+# print("turnOnIdx :", turnOnIdx)
+# print("index: ", index)
 
-signal = np.real(signal)
-plt.plot(franken_t, signal, label="Before smooth")
+extracted_torque = np.real(extracted_torque)
+# plt.plot(fourier_t, extracted_torque, label="Before smooth")
 
 if(lowpass_switch == 1):
     sos = cheby2(N=4, rs=60, Wn=0.5, btype="low", output="sos")
-    signal = sosfiltfilt(sos, signal)
+    extracted_torque = sosfiltfilt(sos, extracted_torque)
 
 
     # sos = cheby2(N=7, rs=40, Wn=0.8, btype="low", output="sos")
@@ -230,37 +223,56 @@ if(lowpass_switch == 1):
     # b,a = butter(N=7, Wn=0.1, btype="low")
     # signal[(2048 + index):] = filtfilt(b, a, signal[(2048 + index):])
     
-plt.plot(franken_t, signal, label="after smooth")
-plt.legend()
-plt.show()
-
-
+# plt.plot(fourier_t, extracted_torque, label="after smooth")
+# plt.legend()
+# plt.show()
 
 
 # calculates torque signal integral
-torque_integral = np.trapezoid(signal, franken_t)
+torque_integral = np.trapezoid(extracted_torque, fourier_t)
 
 # going forwards
-new_t   = franken_t[N_f//2:]
-new_y   = franken_y[N_f//2:]
-new_sig = signal[N_f//2:]
+fourier_t_seg   = fourier_t[N_f//2:]
+fourier_phi_seg   = fourier_phi[N_f//2:]
+extracted_torque_seg = extracted_torque[N_f//2:]
 
 # SECTION FIVE - DO FORWARD PROBLEM WITH TORQUE SIGNAL
 ###################################################################################################
 
-phi_gen = phi_from_torque(N_f, franken_t, signal, gamma, omega)
+phi_forward = phi_from_torque(N_f, fourier_t, extracted_torque, b, c)
 
 
-err = np.sqrt(np.trapezoid(((phi_gen - new_y)**2), x=new_t)) / np.sqrt(np.trapezoid((new_y**2), x=new_t))
-print("Error forward: ", err)
+error_forward = np.sqrt(np.trapezoid(((phi_forward - fourier_phi_seg)**2), x=fourier_t_seg)) / np.sqrt(np.trapezoid((fourier_phi_seg**2), x=fourier_t_seg))
+print("Error forward: ", error_forward)
 
 # SECTION SIX - COMPUTE TORQUE INTEGRAL
 ###################################################################################################
 
-cummInt = integrate.cumulative_trapezoid(np.real(new_sig), new_t, initial=0)
+
+
+I = kappa/c**2 # solve for inertia, in units of g cm^2
+delta = b*I # solve for damping coefficent, in units of g cm^2 s^-1
+xi = delta/(2*np.sqrt(kappa*I)) # solve for damping ration, dimensionless
+w0 = (delta/I)/(2*xi) # solve for natural frequency, units of s^-1
+T0 = (2*pi)/w0 # solve for natural, undamped period, units of s
+Td = 1/(xi*w0) # solve for decay timesacle, units of s
+
+
+print("-------------------------------")
+print("-------SYSTEM PARAMETERS-------")
+print("-------------------------------")
+print("Moment of Intertia, I: ", I, " g cm^2")
+print(r"Damping coefficent, $\delta$: ", delta, " g cm^2 s^-1")
+print("-------------------------------")
+
+true_torque = extracted_torque_seg*I # units of dyn * cm
+
+cummInt = integrate.cumulative_trapezoid(np.real(true_torque), fourier_t_seg, initial=0)
 
 # SECTION SEVEN - SAVE SIGNAL AND PLOT RESULTS
 ###################################################################################################
+
+
 
 if(write_t == 1):
     out_fname = data_name + "_signal.csv"
@@ -268,15 +280,15 @@ if(write_t == 1):
     if os.path.exists(out_path):
         os.remove(out_path)
         print("Existing file removed: ", out_path)
-    np.savetxt(out_path, np.column_stack([franken_t[N_f//2:], np.real(signal[N_f//2:])]),
-           delimiter=',', header='t,torque_signal', comments='')
-    print("Signal saved to: ", out_path)
+    np.savetxt(out_path, np.column_stack([fourier_t[N_f//2:], np.real(extracted_torque[N_f//2:])]),
+           delimiter=',', header='t,extracted_torque', comments='')
+    print("Extractes torque saved to: ", out_path)
 
 
 if(plot_switch == 1):
-    plot_analytical(full_t, full_y, phi_an(full_t), index)
-    plot_franken(franken_t, franken_y, full_t, index, t_end)
-    plot_torque(franken_t, signal)
-    plot_torque_int(new_t, cummInt)
-    plot_phi_gen(new_t, new_y, phi_gen)
+    # plot_analytical(full_t, full_phi, phi_an(full_t), fit_index)
+    # plot_franken(fourier_t, fourier_phi, full_t, fit_index, t_end)
+    plot_torque(fourier_t, true_torque)
+    plot_torque_int(fourier_t_seg, cummInt)
+    # plot_phi_gen(fourier_t_seg, fourier_phi_seg, phi_forward)
     plt.show()
