@@ -1,89 +1,77 @@
 import numpy as np
 from scipy.optimize import curve_fit
 
-def est_omega_d(peak_index, t_insert, t_peaks):
+def est_a(fit_index, t_fit, t_peaks):
 
-    # determine where the nearest peak is to where we want to insert the data
-    insert_near_peak = np.argmin(np.abs(t_peaks - t_insert))
+    # determine where the nearest peak is to where we want to estimate the data
+    estimate_near_peak = np.argmin(np.abs(t_peaks - t_fit))
 
     # pulls out segment of data between peak used for fit
-    # and peak close to insert
-    peak_seg = t_peaks[peak_index:insert_near_peak]
+    # and peak close to estimate value chosen
+    peak_seg = t_peaks[fit_index:]
     
 
-    # does difference of every other point in peak_seg
-    period_est = peak_seg[2:] - peak_seg[:-2]
+    # difference of every other point in peak_seg
+    # estimating period B
+    B = peak_seg[2:] - peak_seg[:-2]
 
     #print("Mean: ", np.mean(period_est))
     
-    #estimates period!
-    omega_d = (2*np.pi)/np.mean(period_est)
+    # obtain estimate for a = (b^2 + c^2)
+    a_est = (2*np.pi)/np.mean(B)
     
-    return omega_d
+    return a_est
 
-# def est_gamma(peak_index, t_peaks, y_peaks):
-#     # picks every other peak from peak index to end
-#     indices = np.arange(peak_index, len(t_peaks), 2)
 
-#     # makes segements from those indices
-#     t_gamma = t_peaks[indices]
-#     y_gamma = y_peaks[indices]
-
-#     # move t to zero
-#     t_gamma = t_gamma - t_gamma[0]
-
-#     # normalize y data to be between 1 and 0
-#     y_gamma = y_gamma / y_gamma[0]
-
-#     # analytical solution from least squares:
-#     # gamma = -sum(x * ln(y)) / sum(x^2)
-#     log_y = np.log(y_gamma)
-#     gamma = -np.dot(t_gamma, log_y) / np.dot(t_gamma, t_gamma)
-
-#     return gamma
-
-def est_gamma(peak_index, x_peaks, y_peaks):
+def est_b(peak_index, t_peaks, phi_peaks):
     # step by 2 starting from peak_index
-    indices = np.arange(peak_index, len(x_peaks), 2)
-    x_gamma = x_peaks[indices]
-    y_gamma = y_peaks[indices]
+    print(peak_index)
+    print(len(t_peaks))
+    indices = np.arange(peak_index, len(t_peaks), 2)
+    t_peaks = t_peaks[indices]
+    phi_peaks = phi_peaks[indices]
 
-    # start from 0, normalize
-    x_gamma = x_gamma - x_gamma[0]
-    y_gamma = y_gamma / y_gamma[0]
+    # normalize time and position data in terms of minimum t in t_peaks
+    t_peaks = t_peaks - t_peaks[0]
+    phi_peaks = phi_peaks / phi_peaks[0]
 
-    # define fit and solve
+    # define standard exponential fit 
     def exp_model(x, gamma):
         return np.exp(-gamma * x)
 
-    popt, _ = curve_fit(exp_model, x_gamma, y_gamma, p0=0.5)
-    gamma = popt[0]
+    # fits data to exponential model defined above
+    popt, _ = curve_fit(exp_model, t_peaks, phi_peaks, p0=0.5)
 
-    return gamma
+    # grabs output for decay parameter b
+    b = popt[0]
 
-def get_constants(gamma_est, omega_est, phi_t):
-    # defining a constant that is used later
-    gam = np.sqrt((omega_est*omega_est) - (gamma_est*gamma_est))
-    print("gam: ", gam)
+    return b
 
-    # In shifted coordinates tau = t - t_peak:
-    # phi(tau) = e^(-gamma*tau) * (c1*cos(gam*tau) + c2*sin(gam*tau))
-    # At tau=0: phi(0) = c1 = phi_t
-    # At tau=0: phi'(0) = -gamma*c1 + gam*c2 = 0 => c2 = (gamma/gam)*c1
-    c_1 = phi_t
-    c_2 = (gamma_est/gam) * phi_t
+def get_constants(b_est, c_est,  phi_fit):
+    # defining estimate for a
+    a_est = np.sqrt((c_est*c_est) - (b_est*b_est))
 
-    return c_1, c_2
 
-def fit_phi(t_seg, y_seg, gamma, w_0, c1, c2, t0):
-    def ode_model(t, gamma, w0, c1, c2):
-        wd = np.sqrt(w0**2 - gamma**2)
-        print("wd :", wd)
-        return np.exp(-gamma * (t - t0)) * (c1 * np.cos(wd * (t - t0)) + c2 * np.sin(wd * (t - t0)))
+    # In shifted coordinates ts = t - t_fit:
+    # phi_s(ts) = e^(-b*ts) * (c1*cos(a*ts) + c2*sin(a*ts))
+    # At ts=0: phi_s(0) = c1 = phi(t_fit) = 
+    # At ts=0: phi_s'(0) = -b*c1 + a*c2 = 0 => c2 = (b/a)*c1
+    C_1 = phi_fit
+    C_2 = (b_est/a_est) * phi_fit
 
-    p0 = [gamma, w_0, c1, c2]
+    # derivied from general solution to ode during time of zero forcing^
+
+    return C_1, C_2
+
+def fit_phi(t_seg, phi_seg, b_est, c_est, C_1, C_2, t0):
+    def ode_model(t, b, c, C_1, C_2):
+        a = np.sqrt(c**2 - b**2)
+        # print("wd :", wd)
+        return np.exp(-b * (t - t0)) * (C_1 * np.cos(a * (t - t0)) + C_2 * np.sin(a * (t - t0)))
+
+    p0 = [b_est, c_est, C_1, C_2]
     bounds = ([0, 0, -np.inf, -np.inf], [np.inf, np.inf, np.inf, np.inf])
-    popt, _ = curve_fit(ode_model, t_seg, y_seg, p0=p0, bounds=bounds)
+    popt, _ = curve_fit(ode_model, t_seg, phi_seg, p0=p0, bounds=bounds)
 
-    gamma, w_0, c1, c2 = popt
-    return gamma, w_0, c1, c2
+    b, c, C_1, C_2 = popt
+    return b, c, C_1, C_2

@@ -10,23 +10,23 @@ def read_data(fname):
 
     #pull out data
     full_t = data[:,0]
-    full_y = data[:,1]
+    full_phi = data[:,1]*np.pi/180 # converting from degrees to radians
     N = len(full_t)
 
     #find peaks using function form scipy.signal
-    loc, _ = find_peaks(np.abs(full_y))
+    loc, _ = find_peaks(np.abs(full_phi))
     t_peaks = full_t[loc]
-    y_peaks = full_y[loc]
+    phi_peaks = full_phi[loc]
 
-    return full_t, full_y, N, t_peaks, y_peaks
+    return full_t, full_phi, N, t_peaks, phi_peaks
 
-def plot_data(t_data, y_data, flag):
+def plot_data(t_data, phi_data, flag):
     # defines figure
     fig, ax = plt.subplots()
     plt.subplots_adjust(bottom=0.25)
 
     # plots data
-    line, = ax.plot(t_data, y_data, 'o-',color='pink')
+    line, = ax.plot(t_data, phi_data, 'o-',color='pink')
     vline = ax.axvline(x=t_data[0], color='purple', linestyle='--')
 
     # add slider
@@ -47,12 +47,11 @@ def plot_data(t_data, y_data, flag):
     return slider.val  # returns the final value when window is closed
 
 
-def fit_segments(full_t, full_y, t_peaks, t_target, t_insert):
-    peak_index = np.argmin(np.abs(t_peaks - t_target))
-    insert_index = np.argmin(np.abs(full_t - t_insert))
-    index = np.where(full_t == t_peaks[peak_index])[0][0]
+def fit_segments(full_t, full_phi, t_peaks, t_fit):
+    fit_peaks_index = np.argmin(np.abs(t_peaks - t_fit))
+    fit_index = np.where(full_t == t_peaks[fit_peaks_index])[0][0]
     
-    t_seg = full_t[index:insert_index]
-    y_seg = full_y[index:insert_index]
+    t_seg = full_t[fit_index:]
+    phi_seg = full_phi[fit_index:]
     
-    return index, peak_index, insert_index, t_seg, y_seg    
+    return fit_index, fit_peaks_index, t_fit, t_seg, phi_seg    
