@@ -239,7 +239,7 @@ phi_forward = phi_from_torque(N_f, fourier_t_seg, extracted_torque_seg, b, c)
 
 
 error_forward = np.sqrt(np.trapezoid(((phi_forward - fourier_phi_seg)**2), x=fourier_t_seg)) / np.sqrt(np.trapezoid((fourier_phi_seg**2), x=fourier_t_seg))
-print("Error forward: ", error_forward)
+print("Error of forward problem: ", error_forward)
 
 # SECTION SIX - COMPUTE TORQUE INTEGRAL
 ###################################################################################################
