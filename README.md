@@ -1,6 +1,6 @@
 # Transient Dynamics Sprinkler — `main.py`
 
-Written by Rachel Bertaud, Colorado School of Mines, 2026.
+Work done by Rachel Bertaud, Gabriel Abreu, and Kelly Yu.
 
 ---
 
