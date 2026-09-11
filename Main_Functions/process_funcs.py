@@ -1,22 +1,26 @@
 import numpy as np
 
-def combine_data(full_t, full_phi, phi_an, proc_data_switch):
-
-    # if(fit_index == (len(full_phi) - 1)):
-    #     proc_data_switch = 0
+def combine_data(full_t, full_phi, phi_an):
     
     dt = np.mean(np.diff(full_t))
 
-    t_end = None
 
-    t_neg = np.arange(-2048 * dt, 0, dt)
-    phi_neg = np.full(2048, full_phi[0])
+    N = len(full_phi)
+
+    if N < 2048:
+        N_pad = 2048 - N
+    else:
+        print("this code is NOT built to handle data of length  > 2048!!!")
+
+    N_added = 2048 + N_pad
+    t_neg = np.arange(-(N_added) * dt, 0, dt)
+    phi_neg = np.full(N_added, full_phi[0])
 
     
     fourier_t = np.concatenate([t_neg, full_t[:2048]])
     fourier_phi = np.concatenate([phi_neg, full_phi[:2048]])
 
-    return fourier_t, fourier_phi, t_end
+    return fourier_t, fourier_phi, N_added
 
 
 def remove_noise(full_t, full_phi, threshold):

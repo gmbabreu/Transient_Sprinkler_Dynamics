@@ -67,23 +67,22 @@ def plot_franken(franken_t, franken_y, full_t, index, t_end):
     plt.title('Plot of Data Used to Find Torque Signal')
     # plt.show()
 
-def plot_torque(franken_t, signal):
-    N = len(franken_t)
+def plot_torque(time, signal):
     signal = np.real(signal)
     plt.figure()
-    plt.plot(franken_t[N//2:], signal[N//2:], color='hotpink')
+    plt.plot(time, signal, color='hotpink')
     plt.xlabel('time, seconds')
-    plt.ylabel('Torque, Nm?')
+    plt.ylabel(r'Torque, dyn $\cdot$ cm')
     plt.title('Extracted Torque Signal from Angular Data')
     
 def plot_phi_gen(full_t, full_y, phi_gen):
     fig1, ax1 = plt.subplots()
 
-    ax1.scatter(full_t, full_y, color='hotpink', s=10, label='Original Data', zorder=2)
-    ax1.plot(full_t, phi_gen, color='mediumpurple', linewidth=2, label='Signal Produced by Torque', zorder=3)
+    ax1.scatter(full_t, full_y, color='hotpink', s=10, label='Experimental Data', zorder=2)
+    ax1.plot(full_t, phi_gen, color='mediumpurple', linewidth=2, label='Signal Produced by Extracted Torque', zorder=3)
 
     ax1.set_xlabel('time, seconds')
-    ax1.set_ylabel('Angular Displacement, unsure')
+    ax1.set_ylabel('Angular Displacement, radians')
     ax1.legend()
     plt.title('Plot of Angular Data Produced by Extracted Torque Signal')
     plt.tight_layout()
@@ -92,5 +91,5 @@ def plot_torque_int(new_t, cummInt):
     plt.figure()
     plt.plot(new_t, cummInt, color='hotpink')
     plt.xlabel('time, seconds')
-    plt.ylabel('Integral of Torque')
+    plt.ylabel('Integral of Torque (dyn cm)')
     plt.title('Cummulative Integral of Torque Signal')

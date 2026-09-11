@@ -24,8 +24,6 @@
 # SECTION ZERO - USER DEFINED INPUTS
 ###################################################################################################
 
-# experimental spring constant kappa
-kappa = 10 # units of dyn * cm (g * cm^2/s^2)
 
 # switches plots on (1) or off (0)
 plot_switch = 1
@@ -54,11 +52,11 @@ re = "1000"
 trial = 1
 
 # define where data is stored on local machine
-data_dir = "C:\\Users\\gabreu\\Desktop\\Transient_Sprinkler_Dynamics\\Data_Generation\\Data"
+data_dir = "/Users/rachelbertaud/code/Sprinkler/Transient_Dynamics/Data_Generation/data"
 lowpass_switch = 1
 
 # Spring constant in dyn cm/rad
-K = 32102.99
+kappa = 32102.99
 
 # DEFINE DEPENDENCIES AND UDFs
 import os
@@ -108,15 +106,14 @@ if spin_dir == "f":
 elif spin_dir == "r":
     spin_switch = 0
 else:
-    raise ValueError(f"Invalid direction '{parts[0]}' in file name - please use 'forward' or 'rev'")
+    raise ValueError(f"Invalid direction '{parts[0]}' in file name - please use 'f' or 'r'")
 
 
 # read data for time t, angle phi  data, get size of data, and find peaks of data
 full_t, full_phi, N, t_peaks, phi_peaks = read_data(fname) # converts from degrees to radians
 
-
 # lets user look at plot and define fitting target point t_fit (t_f)
-t_fit = 47.05 #plot_data(full_t, full_phi, 1)
+t_fit = plot_data(full_t, full_phi, 1)
 
 # returns segment of t and phi after user defined time for fitting target
 fit_index,fit_peaks_index, t_fit, t_seg, phi_seg = fit_segments(full_t, full_phi, t_peaks, t_fit)
@@ -130,7 +127,6 @@ a_est = est_a(fit_peaks_index, t_fit, t_peaks)
 # estimates b from data
 b_est = est_b(fit_peaks_index, t_peaks, phi_peaks)
 
-
 # estimate c from a and b
 c_est = np.sqrt((a_est*a_est) + (b_est*b_est))
 
@@ -138,22 +134,22 @@ c_est = np.sqrt((a_est*a_est) + (b_est*b_est))
 # given fit t value
 C1_est, C2_est = get_constants(b_est, c_est, full_phi[fit_index])
 
-print("---------------------------------------")
-print("-----ESTIMATES FROM DATA (NO FIT)_-----")
-print("---------------------------------------")
-print("Estimate of b: ", b_est)
-print("Estimate of c: ", c_est)
+# print("---------------------------------------")
+# print("-----ESTIMATES FROM DATA (NO FIT)_-----")
+# print("---------------------------------------")
+# print("Estimate of b: ", b_est)
+# print("Estimate of c: ", c_est)
 
 # if user wants a fit...
 if(fit_switch == 1):
     # fit the data
     b, c, C_1, C_2 = fit_phi(t_seg, phi_seg, b_est, c_est, C1_est, C2_est, full_t[fit_index])
-    print("------------------------------")
-    print("-------VALUES AFTER FIT-------")
-    print("------------------------------")
-    print("b: ", b)
-    print("c: ", c)
-    print("------------------------------")
+    # print("------------------------------")
+    # print("-------VALUES AFTER FIT-------")
+    # print("------------------------------")
+    # print("b: ", b)
+    # print("c: ", c)
+    # print("------------------------------")
     
 
 else:
@@ -175,11 +171,11 @@ def phi_an(t):
 idexComb = fit_index
 # threshold is how much you want to clean the data! bigger = smoother ( .01 is nice for rev , 0.5 for forward )
 if(proc_data_switch == 1):
-    full_phi = remove_noise(full_t, full_phi, threshold=.5)
-    
+    full_phi = remove_noise(full_t, full_phi, threshold=.1)
 
 
-fourier_t, fourier_phi, t_end = combine_data(full_t, full_phi, phi_an, proc_data_switch)
+
+fourier_t, fourier_phi, N_added = combine_data(full_t, full_phi, phi_an)
 
 # SECTION FOUR - FOURIER TRANSFORM
 ###################################################################################################
@@ -232,14 +228,14 @@ if(lowpass_switch == 1):
 torque_integral = np.trapezoid(extracted_torque, fourier_t)
 
 # going forwards
-fourier_t_seg   = fourier_t[N_f//2:]
-fourier_phi_seg   = fourier_phi[N_f//2:]
-extracted_torque_seg = extracted_torque[N_f//2:]
+fourier_t_seg   = fourier_t[N_added:]
+fourier_phi_seg   = fourier_phi[N_added:]
+extracted_torque_seg = extracted_torque[N_added:]
 
 # SECTION FIVE - DO FORWARD PROBLEM WITH TORQUE SIGNAL
 ###################################################################################################
 
-phi_forward = phi_from_torque(N_f, fourier_t, extracted_torque, b, c)
+phi_forward = phi_from_torque(N_f, fourier_t_seg, extracted_torque_seg, b, c)
 
 
 error_forward = np.sqrt(np.trapezoid(((phi_forward - fourier_phi_seg)**2), x=fourier_t_seg)) / np.sqrt(np.trapezoid((fourier_phi_seg**2), x=fourier_t_seg))
@@ -252,18 +248,39 @@ print("Error forward: ", error_forward)
 
 I = kappa/c**2 # solve for inertia, in units of g cm^2
 delta = b*I # solve for damping coefficent, in units of g cm^2 s^-1
-xi = delta/(2*np.sqrt(kappa*I)) # solve for damping ration, dimensionless
+xi = delta/(2*np.sqrt(kappa*I)) # solve for damping ratio, dimensionless
 w0 = (delta/I)/(2*xi) # solve for natural frequency, units of s^-1
-T0 = (2*pi)/w0 # solve for natural, undamped period, units of s
+T0 = (2*np.pi)/w0 # solve for natural, undamped period, units of s
 Td = 1/(xi*w0) # solve for decay timesacle, units of s
 
 
-print("-------------------------------")
-print("-------SYSTEM PARAMETERS-------")
-print("-------------------------------")
-print("Moment of Intertia, I: ", I, " g cm^2")
-print(r"Damping coefficent, $\delta$: ", delta, " g cm^2 s^-1")
-print("-------------------------------")
+
+
+W = 28  # label column width
+
+print("=" * 52)
+print("SYSTEM PARAMETERS".center(52))
+print("=" * 52)
+print(f"{'Spring stiffness, κ':<{W}} {kappa:>8.2f}  dyn·cm")
+print(f"{'Moment of inertia, I':<{W}} {I:>8.2f}  g·cm²")
+print(f"{'Damping coefficient, δ':<{W}} {delta:>8.2f}  g·cm²·s⁻¹")
+print(f"{'Damping ratio, ξ':<{W}} {xi:>8.2f}  (dimensionless)")
+print(f"{'Natural frequency, ω₀':<{W}} {w0:>8.2f}  s⁻¹")
+print(f"{'Undamped natural period, T₀':<{W}} {T0:>8.2f}  s")
+print(f"{'Decay timescale, τ_d':<{W}} {Td:>8.2f}  s")
+print("=" * 52)
+
+
+# print("------------------------------------------------------")
+# print("-------SYSTEM PARAMETERS------------------------------")
+# print("------------------------------------------------------")
+# print(f"Moment of Intertia, I: {I:.2f} g cm^2")
+# print(f"Damping coefficent, delta: {delta:.2f} g cm^2 s^-1")
+# print(f"Damping ratio, xi: {xi:.2f} dimensionless")
+# print(f"Natural frequency, omega_0: {w0:.2f} s^-1")
+# print(f"Natural, undamped period, T_0:  {T0:.2f} s")
+# print(f"Decay timescale, T_d: {Td:.2f}  s")
+# print("------------------------------------------------------")
 
 true_torque = extracted_torque_seg*I # units of dyn * cm
 
@@ -288,7 +305,7 @@ if(write_t == 1):
 if(plot_switch == 1):
     # plot_analytical(full_t, full_phi, phi_an(full_t), fit_index)
     # plot_franken(fourier_t, fourier_phi, full_t, fit_index, t_end)
-    plot_torque(fourier_t, true_torque)
+    plot_torque(fourier_t_seg, true_torque)
     plot_torque_int(fourier_t_seg, cummInt)
-    # plot_phi_gen(fourier_t_seg, fourier_phi_seg, phi_forward)
+    plot_phi_gen(fourier_t_seg, fourier_phi_seg, phi_forward)
     plt.show()

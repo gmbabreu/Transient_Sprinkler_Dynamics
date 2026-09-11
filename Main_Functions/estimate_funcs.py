@@ -8,7 +8,7 @@ def est_a(fit_index, t_fit, t_peaks):
 
     # pulls out segment of data between peak used for fit
     # and peak close to estimate value chosen
-    peak_seg = t_peaks[fit_index:]
+    peak_seg = t_peaks[fit_index:(fit_index + 6)]
     
 
     # difference of every other point in peak_seg
@@ -25,8 +25,6 @@ def est_a(fit_index, t_fit, t_peaks):
 
 def est_b(peak_index, t_peaks, phi_peaks):
     # step by 2 starting from peak_index
-    print(peak_index)
-    print(len(t_peaks))
     indices = np.arange(peak_index, len(t_peaks), 2)
     t_peaks = t_peaks[indices]
     phi_peaks = phi_peaks[indices]
@@ -66,7 +64,7 @@ def get_constants(b_est, c_est,  phi_fit):
 def fit_phi(t_seg, phi_seg, b_est, c_est, C_1, C_2, t0):
     def ode_model(t, b, c, C_1, C_2):
         a = np.sqrt(c**2 - b**2)
-        # print("wd :", wd)
+        # print("a :", a)
         return np.exp(-b * (t - t0)) * (C_1 * np.cos(a * (t - t0)) + C_2 * np.sin(a * (t - t0)))
 
     p0 = [b_est, c_est, C_1, C_2]

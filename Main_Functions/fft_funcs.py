@@ -17,10 +17,10 @@ def torque_solver(N_f, b, c, L, fourier_phi):
     return extracted_torque
 
 def phi_from_torque(N_f, fourier_t, extracted_torque, b, c):
-    extracted_torque_seg = np.real(extracted_torque[N_f//2:])  # signal from 0 to end of full_t
+    extracted_torque_seg = np.real(extracted_torque)  # signal from 0 to end of full_t
 
-    t_seg = fourier_t[N_f//2:]
-
+    t_seg = fourier_t
+    
     # interpolant for the forcing
     para = PchipInterpolator(t_seg, extracted_torque_seg, extrapolate=False)
 
