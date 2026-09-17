@@ -41,15 +41,15 @@ proc_data_switch = 1
 # define the spin direction of data to use
 # reads from data file name, i.e. for "forward_500_trail1" put "forward" here
 # rev for reverse and forward for forward
-spin_dir = "r"
+spin_dir = "f"
 
 # define reynolds number of data to use
 # reads from data file name, i.e. for "forward_500_trail1" put "500" here 
-re = "1000"
+re = "1500"
 
 # define trail number  of data to use
 # reads from data file name, i.e. for "forward_500_trail1" put "1" here 
-trial = 1
+trial = 2
 
 # define where data is stored on local machine
 data_dir = "/Users/rachelbertaud/code/Sprinkler/Transient_Dynamics/Data_Generation/data"

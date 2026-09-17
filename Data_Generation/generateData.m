@@ -4,10 +4,11 @@ clf
 close all 
 clear
 
-D = 48.5; % Fixed Distance from Camera to mirror at shortest point
+D = 48; % Fixed Distance from Camera to mirror at shortest point
 saveData = true;
 
-overlayVideo = true;  % Save the overlayed video
+maskedVideo = false;  % Save the masked video
+overlayVideo = false;  % Save the overlayed video
     overlayFrame = rand < 0;  % Save individual overlayed frames, default off
 circleRadius = 8;  
 circleThickness = 2;
@@ -18,7 +19,7 @@ calibrationFile = "frame_rulerCalibration.mat";
 trialCount = 1;
 
 for trial = 1:1:trialCount
-    file = "1000f" + int2str(trial);
+    file = "500f" + int2str(trial);
     
     % Get movie data
     mov_name = "trials/" + file + ".MTS";
@@ -64,15 +65,17 @@ for trial = 1:1:trialCount
     position = [];
     t = [];
 
-    % Always save the masked video as before.
+    % Save videos
     if ~isfolder("data")
         mkdir("data");
     end
-    vidName = "data/" + file + "_maskedData.mp4";
-    V = VideoWriter(vidName, 'MPEG-4');
-    V.FrameRate = fps;
-    V.Quality = 95;
-    open(V)
+    if maskedVideo
+        vidName = "data/" + file + "_maskedData.mp4";
+        V = VideoWriter(vidName, 'MPEG-4');
+        V.FrameRate = fps;
+        V.Quality = 95;
+        open(V)
+    end
 
     if overlayVideo
         overlayVidName = "data/" + file + "_overlayData.mp4";
@@ -119,7 +122,10 @@ for trial = 1:1:trialCount
             overlayImage = drawHollowBlackCircle(overlayImage, xMid, yMid, circleRadius, circleThickness);
         end
 
-        writeVideo(V, maskedImage)
+        if maskedVideo
+            % Write the masked image to the video file
+            writeVideo(V, maskedImage);
+        end
 
         if overlayVideo
             writeVideo(overlayV, overlayImage)
@@ -177,7 +183,9 @@ for trial = 1:1:trialCount
     end
 
     % Close output videos
-    close(V)
+    if maskedVideo
+        close(V)
+    end
     if overlayVideo
         close(overlayV)
     end
