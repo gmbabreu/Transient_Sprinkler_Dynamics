@@ -84,6 +84,64 @@ The script is **interactive** — it will open one plot window with a slider. Dr
 
 ---
 
+## Startup and shutdown angular impulses
+
+The settings immediately below `kappa` in `main.py` configure the new analysis.
+Times are in the original experimental coordinates: `pump_start_s = 10.0`,
+`pump_stop_s = 20.0`, `startup_window = (9.0, 12.0)`,
+`shutdown_window = (19.0, 22.0)`, `baseline_window = (5.0, 8.0)`, and
+`steady_window = (14.0, 18.0)`. These are editable starting points, not established
+transient durations. The analysis checks that `fourier_t_seg` equals `full_t`;
+it does not locate events using padded indices or `turnOnIdx`.
+
+Each event reports signed trapezoidal area with linearly interpolated exact
+endpoints, in **dyn·cm·s = g·cm²/s**. Invalid, out-of-range, or overlapping event
+windows are rejected. Background estimates are medians of samples within the
+baseline and steady windows. Three separate estimates are printed:
+
+- `raw`: integral of reconstructed dimensional torque.
+- `offset`: raw minus `tau_off * window_duration`.
+- `step`: raw minus the analytic area of a background equal to `tau_on` between
+  pump start and stop and `tau_off` elsewhere. This diagnostic assumes instantaneous
+  steady-flow transitions; it is not an exact physical separation.
+
+Set `flow_rate_cm3_s` to a positive **total** flow magnitude through both arms and
+`geometry_factor_cm2` to signed `G = integral_C (x dy - y dx)`, where C follows
+**one** arm outward from the hub and coordinates are relative to the rotation axis.
+With `rho_g_cm3 = 1.0`, predictions are `J_start = -rho * Q_signed * G` and
+`J_stop = +rho * Q_signed * G`, multiplied by `sign_convention`.
+There is no additional factor of two. The current filename selector uses `spin_dir
+= "f"` for forward/outward flow (positive Q) and `"r"` for reverse/inward flow
+(negative Q). Set `sign_convention` explicitly to +1 if measured positive rotation
+matches the positive z direction for G, or -1 otherwise; never choose it by fit.
+Neither Q nor G is inferred from Reynolds number. If either is `None`, experimental
+results still print with “theory unavailable.” Otherwise each correction includes
+prediction, signed residual (measurement minus theory), and measured/theory ratio;
+zero predictions have an undefined ratio.
+
+Forward-flow comparisons are exploratory because this arm-only model may omit
+external-jet contributions. Reverse flow is the cleaner proposed test. No experimental
+agreement is established without independently supplied geometry and flow inputs.
+
+Window sensitivity repeats each integration with both ends expanded or contracted
+by 0.25 and 0.5 s. Only in-range windows that contain the event and do not overlap
+the other nominal event window are retained, along with the nominal window.
+Printed ranges are **window sensitivity, not statistical confidence intervals**.
+
+Existing torque plots gain pump markers, window shading, and impulse annotations.
+A new figure shows torque close-ups with surrounding context and all three local
+cumulative integrals, zeroed at the exact left endpoint. Set
+`write_impulse_summary = 1` to write a separate `{data_name}_impulses.csv` in
+`data_dir` (replaced on reruns), including run identity, windows, backgrounds,
+inputs, predictions, residuals, ratios, and sensitivity ranges. Unavailable theory
+fields are blank. The original signal CSV format is unchanged.
+
+Run the synthetic verification suite with:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
 ## Outputs
 
 **Terminal output:**

@@ -39,24 +39,42 @@ fit_switch = 1
 proc_data_switch = 1
 
 # define the spin direction of data to use
-# reads from data file name, i.e. for "forward_500_trail1" put "forward" here
-# rev for reverse and forward for forward
-spin_dir = "f"
+# matches the direction letter in the data filename, e.g. "500f1_data.csv"
+# f for forward/outward flow and r for reverse/inward flow
+spin_dir = "r"
 
 # define reynolds number of data to use
 # reads from data file name, i.e. for "forward_500_trail1" put "500" here 
-re = "1500"
+re = "1000"
 
 # define trail number  of data to use
 # reads from data file name, i.e. for "forward_500_trail1" put "1" here 
-trial = 2
+trial = 1
 
 # define where data is stored on local machine
 data_dir = "/Users/rachelbertaud/code/Sprinkler/Transient_Dynamics/Data_Generation/data"
+data_dir = "/home/ga2740/Desktop/Transient_Sprinkler_Dynamics/Data_Generation/data"
 lowpass_switch = 1
 
 # Spring constant in dyn cm/rad
 kappa = 32102.99
+
+# Event analysis: all times are original experimental seconds.
+# Editable starting windows, NOT established transient durations.
+pump_start_s = 10.0
+pump_stop_s = 20.0
+startup_window = (9.0, 12.0)
+shutdown_window = (19.0, 22.0)
+baseline_window = (5.0, 8.0)
+steady_window = (14.0, 18.0)
+
+rho_g_cm3 = 1.0
+flow_rate_cm3_s = None  # positive TOTAL flow magnitude through BOTH arms
+geometry_factor_cm2 = None  # signed integral (x dy - y dx), ONE arm outward from hub
+# +1 if positive measured rotation matches +z for G; otherwise -1.
+# Set from the experimental convention, never by selecting the better fit.
+sign_convention = 1
+write_impulse_summary = 1  # separate CSV; existing signal export is unchanged
 
 # DEFINE DEPENDENCIES AND UDFs
 import os
@@ -80,6 +98,9 @@ from process_funcs import combine_data, remove_noise
 
 # PLOT FUNCS
 from plot_funcs import plot_analytical, plot_franken, plot_phi_gen, plot_torque, plot_torque_int
+
+from impulse_funcs import (analyze_impulses, report_impulses, save_impulse_summary,
+                           mark_impulse_windows, plot_impulse_diagnostics)
 
 # FOURIER TRANSFORM FUNCS
 from fft_funcs import torque_solver, phi_from_torque
@@ -106,7 +127,7 @@ if spin_dir == "f":
 elif spin_dir == "r":
     spin_switch = 0
 else:
-    raise ValueError(f"Invalid direction '{parts[0]}' in file name - please use 'f' or 'r'")
+    raise ValueError(f"Invalid direction '{spin_dir}' in file name - please use 'f' or 'r'")
 
 
 # read data for time t, angle phi  data, get size of data, and find peaks of data
@@ -286,6 +307,27 @@ true_torque = extracted_torque_seg*I # units of dyn * cm
 
 cummInt = integrate.cumulative_trapezoid(np.real(true_torque), fourier_t_seg, initial=0)
 
+# Signed impulses use only the unpadded time segment and dimensional torque.
+impulse_results = analyze_impulses(
+    fourier_t_seg,
+    true_torque,
+    full_t,
+    pump_start_s=pump_start_s,
+    pump_stop_s=pump_stop_s,
+    startup_window=startup_window,
+    shutdown_window=shutdown_window,
+    rho_g_cm3=rho_g_cm3,
+    flow_rate_cm3_s=flow_rate_cm3_s,
+    geometry_factor_cm2=geometry_factor_cm2,
+    sign_convention=sign_convention,
+    spin_dir=spin_dir,
+)
+report_impulses(impulse_results)
+if write_impulse_summary:
+    summary_path = os.path.join(data_dir, data_name + "_impulses.csv")
+    save_impulse_summary(summary_path, data_name, impulse_results)
+    print("Impulse summary saved to:", summary_path)
+
 # SECTION SEVEN - SAVE SIGNAL AND PLOT RESULTS
 ###################################################################################################
 
@@ -306,6 +348,9 @@ if(plot_switch == 1):
     # plot_analytical(full_t, full_phi, phi_an(full_t), fit_index)
     # plot_franken(fourier_t, fourier_phi, full_t, fit_index, t_end)
     plot_torque(fourier_t_seg, true_torque)
+    mark_impulse_windows(plt.gca(), impulse_results)
     plot_torque_int(fourier_t_seg, cummInt)
+    mark_impulse_windows(plt.gca(), impulse_results)
     plot_phi_gen(fourier_t_seg, fourier_phi_seg, phi_forward)
+    plot_impulse_diagnostics(fourier_t_seg, true_torque, impulse_results)
     plt.show()
