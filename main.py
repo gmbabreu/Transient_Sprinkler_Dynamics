@@ -63,8 +63,8 @@ kappa = 32102.99
 # Editable starting windows, NOT established transient durations.
 pump_start_s = 10.0
 pump_stop_s = 20.0
-startup_window = (9.0, 12.0)
-shutdown_window = (19.0, 22.0)
+startup_window = (9.5, 12.5)
+shutdown_window = (19.5, 22.5)
 baseline_window = (5.0, 8.0)
 steady_window = (14.0, 18.0)
 
