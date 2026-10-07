@@ -70,7 +70,7 @@ steady_window = (14.0, 18.0)
 
 rho_g_cm3 = 1.0
 flow_rate_cm3_s = int(re)*0.0094  # positive TOTAL flow magnitude through BOTH arms
-geometry_factor_cm2 = 1  # signed integral (x dy - y dx), ONE arm outward from hub
+geometry_factor_cm2 = -108.2641  # signed integral (x dy - y dx), ONE arm outward from hub
 # +1 if positive measured rotation matches +z for G; otherwise -1.
 # Set from the experimental convention, never by selecting the better fit.
 sign_convention = 1
