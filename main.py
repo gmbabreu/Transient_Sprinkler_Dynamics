@@ -52,8 +52,8 @@ re = "1000"
 trial = 1
 
 # define where data is stored on local machine
-data_dir = "/Users/rachelbertaud/code/Sprinkler/Transient_Dynamics/Data_Generation/data"
-data_dir = "/home/ga2740/Desktop/Transient_Sprinkler_Dynamics/Data_Generation/data"
+from pathlib import Path
+data_dir = str(Path(__file__).resolve().parent / "Data_Generation" / "data")
 lowpass_switch = 1
 
 # Spring constant in dyn cm/rad
