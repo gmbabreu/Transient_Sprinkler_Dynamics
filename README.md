@@ -84,26 +84,58 @@ The script is **interactive** — it will open one plot window with a slider. Dr
 
 ---
 
+## Inspect pump timing with audio (`1000r1.MTS`)
+
+Run `sound.m` from MATLAB. It resolves the recording at
+`Data_Generation/trials/1000r1.MTS` relative to the script, so MATLAB's current
+folder does not need to be the trials folder. The default run plots the whole
+recording without playing it. All six channels are used for analysis; the
+20 ms RMS panel helps show sustained sound changes, and the angle panel uses
+the original timestamps from `1000r1_data.csv`.
+
+For this trial, use these **audio inspection ranges**, then narrow them as needed:
+
+| Event | `startTime` | `endTime` |
+|---|---|---|
+| Startup | `10` | `14` |
+| Shutdown | `20` | `24` |
+
+Set `playbackEnabled = true` to listen to a selected range, starting with low
+speaker volume. `playbackChannels = [1 2]` selects the playback channels; try
+other channels if the motor is unclear. Playback uses a fixed gain of 0.25.
+The printed peak is the largest absolute sample across **all** channels,
+which can differ from the channels being played. It is a candidate sound cue,
+not a verified motor onset. A click, speech, or a later sound can dominate it.
+The script still reads the full audio file; narrowing the range shortens
+playback and restricts the peak search.
+
+After listening and comparing with the video, use the confirmed sound cues to
+help choose `startup_window` and `shutdown_window` in `main.py`. Use original video seconds.
+`audioToVideoOffset_s` defaults to zero; verify sound/video synchronization
+before relying on fine timing, especially if you use a converted recording.
+The current data-generation script timestamps frame 1 at zero. MATLAB reports
+matching audio/video durations for this recording, but matching durations alone
+do not establish synchronization of individual events.
+
+Choose `startup_window` and `shutdown_window` separately on the reconstructed
+**torque** plots: start before the transient and end after it settles. The audio
+search ranges above are not established integration bounds. Compare the local
+cumulative integral and the reported window sensitivity as you adjust bounds.
+
 ## Startup and shutdown angular impulses
 
 The settings immediately below `kappa` in `main.py` configure the new analysis.
-Times are in the original experimental coordinates: `pump_start_s = 10.0`,
-`pump_stop_s = 20.0`, `startup_window = (9.0, 12.0)`,
-`shutdown_window = (19.0, 22.0)`, `baseline_window = (5.0, 8.0)`, and
-`steady_window = (14.0, 18.0)`. These are editable starting points, not established
-transient durations. The analysis checks that `fourier_t_seg` equals `full_t`;
+Times are in the original experimental coordinates. Set `startup_window` and
+`shutdown_window` directly, or express their endpoints relative to the `sound`
+cue as in the current configuration. No separate pump event times are required.
+These are editable windows, not established transient durations.
+The analysis checks that `fourier_t_seg` equals `full_t`;
 it does not locate events using padded indices or `turnOnIdx`.
 
 Each event reports signed trapezoidal area with linearly interpolated exact
 endpoints, in **dyn·cm·s = g·cm²/s**. Invalid, out-of-range, or overlapping event
-windows are rejected. Background estimates are medians of samples within the
-baseline and steady windows. Three separate estimates are printed:
-
-- `raw`: integral of reconstructed dimensional torque.
-- `offset`: raw minus `tau_off * window_duration`.
-- `step`: raw minus the analytic area of a background equal to `tau_on` between
-  pump start and stop and `tau_off` elsewhere. This diagnostic assumes instantaneous
-  steady-flow transitions; it is not an exact physical separation.
+windows are rejected. The reported measurement is the raw integral of reconstructed
+dimensional torque. No baseline subtraction or steady-flow correction is applied.
 
 Set `flow_rate_cm3_s` to a positive **total** flow magnitude through both arms and
 `geometry_factor_cm2` to signed `G = integral_C (x dy - y dx)`, where C follows
@@ -115,7 +147,7 @@ There is no additional factor of two. The current filename selector uses `spin_d
 (negative Q). Set `sign_convention` explicitly to +1 if measured positive rotation
 matches the positive z direction for G, or -1 otherwise; never choose it by fit.
 Neither Q nor G is inferred from Reynolds number. If either is `None`, experimental
-results still print with “theory unavailable.” Otherwise each correction includes
+results still print with “theory unavailable.” Otherwise each measurement includes
 prediction, signed residual (measurement minus theory), and measured/theory ratio;
 zero predictions have an undefined ratio.
 
@@ -124,15 +156,15 @@ external-jet contributions. Reverse flow is the cleaner proposed test. No experi
 agreement is established without independently supplied geometry and flow inputs.
 
 Window sensitivity repeats each integration with both ends expanded or contracted
-by 0.25 and 0.5 s. Only in-range windows that contain the event and do not overlap
+by 0.25 and 0.5 s. Only positive-duration, in-range windows that do not overlap
 the other nominal event window are retained, along with the nominal window.
 Printed ranges are **window sensitivity, not statistical confidence intervals**.
 
-Existing torque plots gain pump markers, window shading, and impulse annotations.
-A new figure shows torque close-ups with surrounding context and all three local
+Existing torque plots gain window shading and impulse annotations.
+A new figure shows torque close-ups with surrounding context and local raw
 cumulative integrals, zeroed at the exact left endpoint. Set
 `write_impulse_summary = 1` to write a separate `{data_name}_impulses.csv` in
-`data_dir` (replaced on reruns), including run identity, windows, backgrounds,
+`data_dir` (replaced on reruns), including run identity, windows,
 inputs, predictions, residuals, ratios, and sensitivity ranges. Unavailable theory
 fields are blank. The original signal CSV format is unchanged.
 

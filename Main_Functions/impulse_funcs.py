@@ -187,10 +187,9 @@ def theoretical_impulses(
 
 def _valid_sensitivity_windows(
     time_s,
-    event_time_s,
     chosen_window,
     other_window,
-    changes_s=(0.0, 0.25, 0.5),
+    changes_s=(-0.5, -0.25, 0.0, 0.25, 0.5),
 ):
     """
     Generate nearby windows for checking sensitivity to integration limits.
@@ -201,17 +200,16 @@ def _valid_sensitivity_windows(
     """
     candidates = []
 
-    for change in (-0.5, -0.25, 0.0, 0.25, 0.5):
+    for change in changes_s:
         start_s = chosen_window[0] - change
         end_s = chosen_window[1] + change
 
         inside_data = time_s[0] <= start_s < end_s <= time_s[-1]
-        contains_event = start_s <= event_time_s <= end_s
         avoids_other_event_window = (
             end_s <= other_window[0] or start_s >= other_window[1]
         )
 
-        if inside_data and contains_event and avoids_other_event_window:
+        if inside_data and avoids_other_event_window:
             candidates.append((start_s, end_s))
 
     return candidates
@@ -222,8 +220,6 @@ def analyze_impulses(
     torque_dyn_cm,
     full_time_s,
     *,
-    pump_start_s,
-    pump_stop_s,
     startup_window,
     shutdown_window,
     rho_g_cm3=1.0,
@@ -244,9 +240,7 @@ def analyze_impulses(
         Reconstructed dimensional torque signal and its time coordinate.
     full_time_s
         Original experimental time array. It must match time_s exactly so the
-        pump-event times are interpreted in the original experiment coordinates.
-    pump_start_s, pump_stop_s
-        Known pump startup and shutdown times.
+        integration windows are interpreted in the original experiment coordinates.
     startup_window, shutdown_window
         Integration windows around the two transient events.
     rho_g_cm3
@@ -276,25 +270,11 @@ def analyze_impulses(
             "The torque time array must match the original experimental time array."
         )
 
-    if (
-        not np.all(np.isfinite([pump_start_s, pump_stop_s]))
-        or not time_s[0] <= pump_start_s < pump_stop_s <= time_s[-1]
-    ):
-        raise ValueError(
-            "Pump startup and shutdown times must be ordered and inside the data."
-        )
-
     startup_window = validate_window(time_s, startup_window)
     shutdown_window = validate_window(time_s, shutdown_window)
 
     if startup_window[1] > shutdown_window[0]:
         raise ValueError("Startup and shutdown integration windows must not overlap.")
-
-    if not startup_window[0] <= pump_start_s <= startup_window[1]:
-        raise ValueError("The startup integration window must contain pump_start_s.")
-
-    if not shutdown_window[0] <= pump_stop_s <= shutdown_window[1]:
-        raise ValueError("The shutdown integration window must contain pump_stop_s.")
 
     theory_start, theory_stop, q_signed = theoretical_impulses(
         rho_g_cm3=rho_g_cm3,
@@ -305,18 +285,17 @@ def analyze_impulses(
     )
 
     event_specs = [
-        ("startup", pump_start_s, startup_window, shutdown_window, theory_start),
-        ("shutdown", pump_stop_s, shutdown_window, startup_window, theory_stop),
+        ("startup", startup_window, shutdown_window, theory_start),
+        ("shutdown", shutdown_window, startup_window, theory_stop),
     ]
 
     results = []
 
-    for event, event_time_s, window, other_window, theory in event_specs:
+    for event, window, other_window, theory in event_specs:
         measured = integrate_impulse(time_s, torque_dyn_cm, window)
 
         sensitivity_windows = _valid_sensitivity_windows(
             time_s,
-            event_time_s,
             window,
             other_window,
         )
@@ -331,7 +310,6 @@ def analyze_impulses(
         results.append(
             {
                 "event": event,
-                "event_time_s": event_time_s,
                 "window_start_s": window[0],
                 "window_end_s": window[1],
                 "J_measured_dyn_cm_s": measured,
@@ -423,17 +401,11 @@ def save_impulse_summary(path, run_identity, results):
 
 def mark_impulse_windows(ax, results, annotate=True):
     """
-    Mark pump events and selected integration windows on an existing axis.
+    Mark selected integration windows on an existing axis.
     """
     colors = ("tab:blue", "tab:orange")
 
     for row, color in zip(results, colors):
-        ax.axvline(
-            row["event_time_s"],
-            color=color,
-            linestyle="--",
-            label=f"Pump {row['event']}",
-        )
         ax.axvspan(
             row["window_start_s"],
             row["window_end_s"],
@@ -493,9 +465,6 @@ def plot_impulse_diagnostics(time_s, torque_dyn_cm, results):
             time_s, torque_dyn_cm, context
         )
         axes[0, col].plot(context_time, context_torque, color="hotpink")
-        axes[0, col].axvline(
-            row["event_time_s"], color="tab:blue", linestyle="--"
-        )
         axes[0, col].axvspan(
             start_s, end_s, color="tab:blue", alpha=0.15
         )
@@ -526,9 +495,6 @@ def plot_impulse_diagnostics(time_s, torque_dyn_cm, results):
                 label=f"theory J = {theory:.4g}",
             )
 
-        axes[1, col].axvline(
-            row["event_time_s"], color="gray", linestyle="--"
-        )
         axes[1, col].axhline(0, color="gray", linewidth=0.5)
         axes[1, col].set(
             xlim=(start_s, end_s),

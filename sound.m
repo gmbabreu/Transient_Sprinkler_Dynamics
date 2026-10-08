@@ -5,8 +5,8 @@
 repoDir = fileparts(mfilename('fullpath'));
 trialName = '1000r1';
 videoFileName = fullfile(repoDir, 'Data_Generation', 'trials', [trialName '.MTS']);
-startTime = 0;
-endTime = Inf;             % Inf means the end of the audio
+startTime = 9.5;
+endTime = 13;             % Inf means the end of the audio
 playbackEnabled = false;   % enable after narrowing the inspection window
 playbackChannels = [1 2];  % audition other channels separately if needed
 playbackGain = 0.25;       % fixed attenuation; start with low speaker volume
@@ -25,7 +25,7 @@ validateattributes(endTime, {'numeric'}, {'scalar', 'real', 'finite', '>', start
 assert(startTime < duration_s, 'startTime must be inside the recording.');
 
 % Half-open interval [startTime, endTime), using actual sample timestamps.
-startIndex = floor(startTime * fs) + 1;
+startIndex = ceil(startTime * fs) + 1;
 endIndex = min(totalSamples, ceil(endTime * fs));
 assert(endIndex >= startIndex, 'Inspection window contains no audio samples.');
 audioSegment = audioData(startIndex:endIndex, :);
@@ -96,7 +96,7 @@ if playbackEnabled
     stop(player);
 end
 
-% Transfer confirmed event times to pump_start_s / pump_stop_s in main.py.
+% Use confirmed sound cues to help choose integration windows in main.py.
 % startup_window / shutdown_window are TORQUE integration bounds, not audio
 % search bounds. Choose them on the reconstructed torque and check that its
 % local cumulative integral settles as the bounds are varied.

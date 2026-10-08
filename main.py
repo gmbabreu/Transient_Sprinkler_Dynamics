@@ -61,12 +61,9 @@ kappa = 32102.99
 
 # Event analysis: all times are original experimental seconds.
 # Editable starting windows, NOT established transient durations.
-pump_start_s = 10.0
-pump_stop_s = 20.0
-startup_window = (9.5, 12.5)
-shutdown_window = (19.5, 22.5)
-baseline_window = (5.0, 8.0)
-steady_window = (14.0, 18.0)
+sound = 10.149896
+startup_window = (sound+1, sound+2)
+shutdown_window = (sound+11, sound+12)
 
 rho_g_cm3 = 1.0
 flow_rate_cm3_s = int(re)*0.0094  # positive TOTAL flow magnitude through BOTH arms
@@ -312,8 +309,6 @@ impulse_results = analyze_impulses(
     fourier_t_seg,
     true_torque,
     full_t,
-    pump_start_s=pump_start_s,
-    pump_stop_s=pump_stop_s,
     startup_window=startup_window,
     shutdown_window=shutdown_window,
     rho_g_cm3=rho_g_cm3,
