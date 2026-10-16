@@ -129,6 +129,24 @@ Times are in the original experimental coordinates. Set `startup_window` and
 `shutdown_window` directly, or express their endpoints relative to the `sound`
 cue as in the current configuration. No separate pump event times are required.
 These are editable windows, not established transient durations.
+
+With `plot_switch = 1` and `click_impulse_windows = 1` (the default), an
+**extracted torque** picker opens before the final analysis. It shows close-ups
+around startup (9–13 s) and shutdown (19–23 s). Click twice in each panel to
+choose that event's integration endpoints, in either order. Shading and panel
+titles show the selected intervals. Click **Done**, press **Enter**, or close
+the picker to continue. An event with no clicks or only one click keeps its
+sound-based window, so either event can also be selected independently.
+
+**Reset to sound** clears selections; **Escape** restores both defaults and
+continues. Invalid or overlapping pairs are rejected; retry the second click.
+To replace a completed pair, click two new endpoints in that panel.
+Turn off toolbar zoom/pan before picking. `impulse_selection_views` controls
+the initial close-ups, not integration limits. Set `click_impulse_windows = 0`
+to skip the picker. With `plot_switch = 0`, the configured windows are used
+directly. Selected bounds apply to final integral plots, terminal results,
+sensitivity analysis, and the impulse CSV.
+
 The analysis checks that `fourier_t_seg` equals `full_t`;
 it does not locate events using padded indices or `turnOnIdx`.
 
@@ -310,4 +328,3 @@ $$
 $$
 
 Now, the question becomes how well this torque signal represents our data. We can now take $\tau$ and solve the ODE form forward for $\phi$. Thus, we are generating analytical data using the extracted $\tau$ from the experimental data. We then calculate the norm 2 error between the analytical data and the experimental data as a reference for the accuracy of our method.
-

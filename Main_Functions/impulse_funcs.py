@@ -432,6 +432,136 @@ def mark_impulse_windows(ax, results, annotate=True):
     ax.legend(fontsize=7, loc="lower right")
 
 
+def select_impulse_windows(
+    time_s, torque_dyn_cm, startup_window, shutdown_window, *, view_windows=None
+):
+    """Pick two endpoints per event on extracted torque close-ups.
+
+    Close the figure, press Enter, or click Done to accept completed pairs.
+    Events with no complete pair retain their supplied sound-based window.
+    Escape discards all clicks. view_windows controls only the initial views.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.widgets import Button
+
+    time_s, torque_dyn_cm = validate_signal(time_s, torque_dyn_cm)
+    defaults = [validate_window(time_s, startup_window),
+                validate_window(time_s, shutdown_window)]
+    if defaults[0][1] > defaults[1][0]:
+        raise ValueError("Startup and shutdown integration windows must not overlap.")
+    if view_windows is None:
+        view_windows = [(a - 2, b + 2) for a, b in defaults]
+    if len(view_windows) != 2:
+        raise ValueError("Supply one close-up view for each event.")
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 5))
+    fig.subplots_adjust(top=0.76, bottom=0.25, wspace=0.3)
+    fig.suptitle(
+        "Extracted torque: click two interval endpoints in each panel (either order).\n"
+        "Done / Enter / close: accept; incomplete pairs use sound windows.\n"
+        "Reset / Escape: restore sound windows. Turn off zoom/pan to pick.",
+        fontsize=10,
+    )
+    names = ("Startup", "Shutdown")
+    colors = ("tab:blue", "tab:orange")
+    chosen = list(defaults)
+    pending = [None, None]
+    manual = [False, False]
+    markers = [[], []]
+    status = fig.text(0.05, 0.14, "", fontsize=9)
+
+    for i, (ax, view) in enumerate(zip(axes, view_windows)):
+        # Include the fallback window even when the sound cue changes.
+        context = validate_window(time_s, (
+            max(time_s[0], min(view[0], defaults[i][0])),
+            min(time_s[-1], max(view[1], defaults[i][1])),
+        ))
+        local_time, local_torque = window_samples(time_s, torque_dyn_cm, context)
+        ax.plot(local_time, local_torque, color="hotpink")
+        ax.set(xlim=context, xlabel="Experimental time (s)",
+               ylabel="Extracted torque (dyn*cm)")
+        ax.grid(alpha=0.25)
+
+    def redraw(message=""):
+        for i, ax in enumerate(axes):
+            for artist in markers[i]:
+                artist.remove()
+            a, b = chosen[i]
+            markers[i] = [ax.axvspan(a, b, color=colors[i], alpha=0.15),
+                          ax.axvline(a, color=colors[i], linestyle="--"),
+                          ax.axvline(b, color=colors[i], linestyle="--")]
+            source = "clicked" if manual[i] else "sound"
+            ax.set_title(f"{names[i]}: [{a:.3f}, {b:.3f}] s ({source})")
+            if pending[i] is not None:
+                markers[i].append(ax.axvline(pending[i], color=colors[i]))
+        status.set_text(message or "Shaded windows will be used. Click Done when ready.")
+        fig.canvas.draw_idle()
+
+    def on_click(event):
+        if event.button != 1 or event.inaxes not in axes or event.xdata is None:
+            return
+        toolbar = getattr(fig.canvas, "toolbar", None)
+        if toolbar is not None and toolbar.mode:
+            return
+        i = list(axes).index(event.inaxes)
+        endpoint = float(event.xdata)
+        if not np.isfinite(endpoint) or not time_s[0] <= endpoint <= time_s[-1]:
+            return
+        if pending[i] is None:
+            # An incomplete replacement falls back to this event's sound window.
+            trial = list(chosen)
+            trial[i] = defaults[i]
+            if trial[0][1] > trial[1][0]:
+                redraw("Reset first: the sound fallback would overlap the other clicked window.")
+                return
+            chosen[i], manual[i], pending[i] = defaults[i], False, endpoint
+            redraw(f"{names[i]}: first endpoint {endpoint:.3f} s; click the other endpoint.")
+            return
+        candidate = tuple(sorted((pending[i], endpoint)))
+        trial = list(chosen)
+        trial[i] = candidate
+        try:
+            validate_window(time_s, candidate)
+            if trial[0][1] > trial[1][0]:
+                raise ValueError("Startup must end before shutdown begins.")
+        except ValueError as error:
+            redraw(f"{error} Click a different second endpoint, or Reset.")
+            return
+        chosen[i], manual[i], pending[i] = candidate, True, None
+        redraw()
+
+    def reset(event=None):
+        chosen[:] = defaults
+        pending[:] = [None, None]
+        manual[:] = [False, False]
+        redraw("Sound windows restored. Click two endpoints per event, or Done.")
+
+    def done(event=None):
+        plt.close(fig)
+
+    def on_key(event):
+        if event.key == "enter":
+            done()
+        elif event.key == "escape":
+            reset()
+            done()
+
+    reset_button = Button(fig.add_axes([0.61, 0.04, 0.16, 0.06]), "Reset to sound")
+    done_button = Button(fig.add_axes([0.79, 0.04, 0.16, 0.06]), "Done")
+    reset_button.on_clicked(reset)
+    done_button.on_clicked(done)
+    connections = [fig.canvas.mpl_connect("button_press_event", on_click),
+                   fig.canvas.mpl_connect("key_press_event", on_key)]
+    redraw()
+    try:
+        plt.show(block=True)
+    finally:
+        for connection in connections:
+            fig.canvas.mpl_disconnect(connection)
+        plt.close(fig)
+    return tuple(chosen)
+
+
 def plot_impulse_diagnostics(time_s, torque_dyn_cm, results):
     """
     Plot each transient and its locally accumulated RAW impulse.

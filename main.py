@@ -64,10 +64,13 @@ kappa = 32102.99
 sound = 10.149896
 startup_window = (sound+1, sound+2)
 shutdown_window = (sound+11, sound+12)
+# Pick endpoints on extracted torque close-ups; close without a pair to use sound.
+click_impulse_windows = 1  # set to 0 to always use the sound-based windows above
+impulse_selection_views = ((9, 13), (19, 23))  # views, not integration bounds
 
 rho_g_cm3 = 1.0
 flow_rate_cm3_s = int(re)*0.0094  # positive TOTAL flow magnitude through BOTH arms
-geometry_factor_cm2 = -108.2641  # signed integral (x dy - y dx), ONE arm outward from hub
+geometry_factor_cm2 = -21.6528  # signed integral (x dy - y dx), ONE arm outward from hub
 # +1 if positive measured rotation matches +z for G; otherwise -1.
 # Set from the experimental convention, never by selecting the better fit.
 sign_convention = 1
@@ -97,7 +100,8 @@ from process_funcs import combine_data, remove_noise
 from plot_funcs import plot_analytical, plot_franken, plot_phi_gen, plot_torque, plot_torque_int
 
 from impulse_funcs import (analyze_impulses, report_impulses, save_impulse_summary,
-                           mark_impulse_windows, plot_impulse_diagnostics)
+                           mark_impulse_windows, plot_impulse_diagnostics,
+                           select_impulse_windows)
 
 # FOURIER TRANSFORM FUNCS
 from fft_funcs import torque_solver, phi_from_torque
@@ -303,6 +307,12 @@ print("=" * 52)
 true_torque = extracted_torque_seg*I # units of dyn * cm
 
 cummInt = integrate.cumulative_trapezoid(np.real(true_torque), fourier_t_seg, initial=0)
+
+if plot_switch == 1 and click_impulse_windows:
+    startup_window, shutdown_window = select_impulse_windows(
+        fourier_t_seg, true_torque, startup_window, shutdown_window,
+        view_windows=impulse_selection_views,
+    )
 
 # Signed impulses use only the unpadded time segment and dimensional torque.
 impulse_results = analyze_impulses(

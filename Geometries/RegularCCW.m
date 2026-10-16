@@ -3,7 +3,7 @@ clear all;
 L = 0;
 rho = 1;
 armRadius = 2.54;
-Q = 5;
+Q = 1;
 offsetX = 2.54;
 offsetY = 2.54;
 phi = linspace(0, 3*pi/4, 10000);
