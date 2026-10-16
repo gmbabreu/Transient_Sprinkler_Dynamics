@@ -2,6 +2,9 @@ clc
 close all
 clear
 
+% Keep the reference image and generated result in this calibration folder.
+calibrationDir = fileparts(mfilename('fullpath'));
+
 %% SETUP
 file = "frame"
 rulerValues = [8 10 14 17.5 22 26 28];
@@ -9,7 +12,7 @@ numPoints = numel(rulerValues);
 
 originValue = 17.5;          % Physical value chosen as xC
 
-imageData = imread(file + ".jpg");
+imageData = imread(fullfile(calibrationDir, file + ".jpg"));
 
 %% COLLECT CLICKS
 
@@ -108,5 +111,4 @@ rulerCalibration.originValue = originValue;
 
 rulerCalibration.pixelToDistanceSpline = pixelToDistanceSpline;
 
-save(file + "_rulerCalibration.mat","rulerCalibration")
-
+save(fullfile(calibrationDir, file + "_rulerCalibration.mat"),"rulerCalibration")

@@ -44,14 +44,14 @@ proc_data_switch = 1
 spin_dir = "r"
 
 # define reynolds number of data to use
-# reads from data file name, i.e. for "forward_500_trail1" put "500" here 
+# reads from data file name, i.e. for "500f1_data.csv" put "500" here
 re = "1000"
 
-# define trail number  of data to use
-# reads from data file name, i.e. for "forward_500_trail1" put "1" here 
+# define trial number of data to use
+# reads from data file name, i.e. for "500f1_data.csv" put "1" here
 trial = 1
 
-# define where data is stored on local machine
+# Resolve data relative to this script, independently of the working directory.
 from pathlib import Path
 data_dir = str(Path(__file__).resolve().parent / "Data_Generation" / "data")
 lowpass_switch = 1
@@ -70,7 +70,7 @@ impulse_selection_views = ((9, 13), (19, 23))  # views, not integration bounds
 
 rho_g_cm3 = 1.0
 flow_rate_cm3_s = int(re)*0.0094  # positive TOTAL flow magnitude through BOTH arms
-geometry_factor_cm2 = -21.6528  # signed integral (x dy - y dx), ONE arm outward from hub
+geometry_factor_cm2 = -21.6528  # signed integral (x dy - y dx), ONE arm outward from hub; found from geometries/RegularCW.m file
 # +1 if positive measured rotation matches +z for G; otherwise -1.
 # Set from the experimental convention, never by selecting the better fit.
 sign_convention = 1
@@ -110,9 +110,9 @@ from fft_funcs import torque_solver, phi_from_torque
 # SECTION ONE - READ ANGULAR POSITION DATA AND REQUEST FIT LOCATION
 ###################################################################################################
 
-os.chdir(data_dir)
 data_name = re + spin_dir + str(trial) + "_data"
 fname = data_name + ".csv"
+input_path = os.path.join(data_dir, fname)
 
 print("------------------------------")
 print("Data coming from ", fname, " in directory ", data_dir)
@@ -132,7 +132,7 @@ else:
 
 
 # read data for time t, angle phi  data, get size of data, and find peaks of data
-full_t, full_phi, N, t_peaks, phi_peaks = read_data(fname) # converts from degrees to radians
+full_t, full_phi, N, t_peaks, phi_peaks = read_data(input_path) # converts from degrees to radians
 
 # lets user look at plot and define fitting target point t_fit (t_f)
 t_fit = plot_data(full_t, full_phi, 1)

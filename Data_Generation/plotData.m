@@ -1,5 +1,9 @@
 clc; clear; clf; close all;
 
+% Use the data directory beside this script, independently of MATLAB's current folder.
+scriptDir = fileparts(mfilename('fullpath'));
+dataDir = fullfile(scriptDir, "data");
+
 trialCount = 1;
 file = "1000r";
 
@@ -10,7 +14,7 @@ motionThreshold = 2;   % degrees / second
 trialData = cell(1, trialCount);
 
 for trial = 1:trialCount
-    name = "data/" + file + int2str(trial) + "_data.csv";
+    name = fullfile(dataDir, file + int2str(trial) + "_data.csv");
     trialData{trial} = readmatrix(name);
 end
 
@@ -155,7 +159,7 @@ title('Trial Data Comparison');
 
 %% SAVE MEAN DATA
 
-name = "data/" + file + "_meanData.csv";
+name = fullfile(dataDir, file + "_meanData.csv");
 
 dataFinal = [tCommon, meanData];
 

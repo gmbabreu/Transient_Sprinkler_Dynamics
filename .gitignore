@@ -1,2 +1,32 @@
-
+# Raw recordings (case-insensitive extension).
 *.[mM][tT][sS]
+
+# Generated data-processing artifacts.
+/Data_Generation/**/*.asv
+/Data_Generation/**/*.zip
+/Data_Generation/**/*.mat
+
+# Local video files (case-insensitive extensions), including trials and frames.
+/Data_Generation/**/*.[mM][oO][vV]
+/Data_Generation/**/*.[mM][pP]4
+/Data_Generation/**/*.[aA][vV][iI]
+/Data_Generation/**/*.[mM][kK][vV]
+/Data_Generation/**/*.[wW][eE][bB][mM]
+/Data_Generation/**/*.[mM][pP][gG]
+/Data_Generation/**/*.[mM][pP][eE][gG]
+/Data_Generation/**/*.[mM]4[vV]
+/Data_Generation/**/*.[wW][mM][vV]
+/Data_Generation/**/*.[mM]2[tT][sS]
+/Data_Generation/**/*.[tT][sS]
+/Data_Generation/**/*.[fF][lL][vV]
+/Data_Generation/**/*.[vV][oO][bB]
+/Data_Generation/**/*.3[gG][pP]
+/Data_Generation/**/*.[oO][gG][vV]
+
+# Extracted frame images; other files in these folders can be tracked.
+/Data_Generation/frames/**/*.[jJ][pP][gG]
+/Data_Generation/frames/**/*.[jJ][pP][eE][gG]
+/Data_Generation/frames/**/*.[pP][nN][gG]
+/Data_Generation/frames/**/*.[tT][iI][fF]
+/Data_Generation/frames/**/*.[tT][iI][fF][fF]
+/Data_Generation/frames/**/*.[bB][mM][pP]

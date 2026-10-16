@@ -4,6 +4,15 @@ clf
 close all 
 clear
 
+% Resolve files relative to this script, independently of MATLAB's current folder.
+scriptDir = fileparts(mfilename('fullpath'));
+trialsDir = fullfile(scriptDir, "trials");
+framesDir = fullfile(scriptDir, "frames");
+dataDir = fullfile(scriptDir, "data");
+calibrationDir = fullfile(scriptDir, "calibration");
+% Make the ruler projection helper available from its calibration folder.
+addpath(calibrationDir);
+
 D = 48; % Fixed Distance from Camera to mirror at shortest point
 saveData = true;
 
@@ -14,7 +23,7 @@ circleRadius = 8;
 circleThickness = 2;
 
 %% Calibration
-calibrationFile = "frame_rulerCalibration.mat";
+calibrationFile = fullfile(calibrationDir, "frame_rulerCalibration.mat");
 
 trialCount = 1;
 
@@ -22,10 +31,10 @@ for trial = 1:1:trialCount
     file = "500f" + int2str(trial);
     
     % Get movie data
-    mov_name = "trials/" + file + ".MTS";
+    mov_name = fullfile(trialsDir, file + ".MTS");
     
     if ~isfile(mov_name)
-        error(mov_name + " is not in working directory. Please move move or code to working directory!")
+        error("Recording not found: " + mov_name)
     end
 
     % create video reader object for reading the video files
@@ -35,7 +44,7 @@ for trial = 1:1:trialCount
     fprintf("Time step size is %.4f seconds\n", dt);
 
     if ~isfile(calibrationFile)
-        error("Missing calibration file " + calibrationFile + ". Run calibrateRulerAxis.m first.")
+        error("Missing calibration file " + calibrationFile + ". Run calibration/calibrateRulerAxis.m first.")
     end
 
     calibrationData = load(calibrationFile, "rulerCalibration");
@@ -44,7 +53,7 @@ for trial = 1:1:trialCount
   
     %% READ, MASK, NAD EXTRACT DATA
 
-    folder = fullfile("frames", file + "_frames");
+    folder = fullfile(framesDir, file + "_frames");
 
     pink = [170/225, 22/225, 181/225]; % Some colors I like
     darkpink = [137/225, 18/225, 145/225];
@@ -52,7 +61,7 @@ for trial = 1:1:trialCount
     % Defining loops for names to read through frames
     i = 1;
     filename = sprintf("%03d",i)+".jpg";
-    path = fullfile(pwd, folder, filename);
+    path = fullfile(folder, filename);
 
     if ~isfile(path)
         error("First frame not found: " + path + ". Run save_frames.m for this trial first.");
@@ -66,11 +75,11 @@ for trial = 1:1:trialCount
     t = [];
 
     % Save videos
-    if ~isfolder("data")
-        mkdir("data");
+    if ~isfolder(dataDir)
+        mkdir(dataDir);
     end
     if maskedVideo
-        vidName = "data/" + file + "_maskedData.mp4";
+        vidName = fullfile(dataDir, file + "_maskedData.mp4");
         V = VideoWriter(vidName, 'MPEG-4');
         V.FrameRate = fps;
         V.Quality = 95;
@@ -78,7 +87,7 @@ for trial = 1:1:trialCount
     end
 
     if overlayVideo
-        overlayVidName = "data/" + file + "_overlayData.mp4";
+        overlayVidName = fullfile(dataDir, file + "_overlayData.mp4");
         overlayV = VideoWriter(overlayVidName, 'MPEG-4');
         overlayV.FrameRate = fps;
         overlayV.Quality = 95;
@@ -86,7 +95,7 @@ for trial = 1:1:trialCount
     end
 
     if overlayFrame
-        overlayFolder = "data/" + file + "_overlayFrames/";
+        overlayFolder = fullfile(dataDir, file + "_overlayFrames");
         if ~isfolder(overlayFolder)
             mkdir(overlayFolder);
         end
@@ -133,7 +142,7 @@ for trial = 1:1:trialCount
 
         if overlayFrame
             frameName = sprintf("%03d", i) + ".jpg";
-            imwrite(overlayImage, overlayFolder + frameName);
+            imwrite(overlayImage, fullfile(overlayFolder, frameName));
         end
 
         % This flattens the masked image from 3 dimensional to 2
@@ -206,8 +215,8 @@ for trial = 1:1:trialCount
 
 
     if saveData
-        % Set up to write theta data to a txt file 
-        name = fullfile("data", file + "_data.csv");
+        % Set up to write theta data to a CSV file
+        name = fullfile(dataDir, file + "_data.csv");
         dataFinal = [t, theta_all];
         blocker = false;
 
@@ -236,7 +245,7 @@ for trial = 1:1:trialCount
             delete(name); % Delete old data if user confirmed
         end
 
-        % write theta data to a txt file 
+        % write theta data to a CSV file
         outputTable = array2table(dataFinal, ...
             'VariableNames', {'time_seconds', 'angle_degrees'});
         writetable(outputTable, name);

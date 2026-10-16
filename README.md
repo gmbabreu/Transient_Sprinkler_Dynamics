@@ -47,13 +47,17 @@ Input data is a `.csv` file with **two columns** (header row is skipped):
 |----------|----------|
 | time (t) | angular position (φ) |
 
-**File naming convention:** `{direction}_{Re}_trial{N}.csv`
+**File naming convention:** `{Re}{direction}{N}_data.csv`
 
-- `direction`: `forward` or `rev`
+- `direction`: `f` for forward/outward flow or `r` for reverse/inward flow
 - `Re`: Reynolds number (e.g. `500`, `1000`)
 - `N`: trial number (e.g. `1`, `2`)
 
-Example: `forward_1000_trial1.csv`
+Example: `1000r1_data.csv`
+
+The default input directory is `Data_Generation/data`, resolved relative to
+`main.py`. Input and output paths do not depend on the terminal's working
+directory, and the script does not change that directory.
 
 ---
 
@@ -67,10 +71,10 @@ At the top of `main.py`, set these variables before running:
 | `write_t` | `0` or `1` | `1` = save extracted torque signal to CSV, `0` = skip saving |
 | `fit_switch` | `0` or `1` | `1` = refine ω/γ estimates with a curve fit, `0` = use raw peak estimates |
 | `proc_data_switch` | `0` or `1` | `1` = clean noise from data, `0` = use raw data |
-| `spin_dir` | string | Spin direction — `"forward"` or `"rev"` |
+| `spin_dir` | string | Spin direction — `"f"` or `"r"` |
 | `re` | string | Reynolds number matching the filename of interest — e.g. `"1000"` |
 | `trial` | int | Trial number matching the filename of interest — e.g. `1` |
-| `data_dir` | string | **Full local path** to the directory where your CSV data files live |
+| `data_dir` | string | Defaults to `Data_Generation/data` relative to `main.py`; used for input CSVs and saved results |
 
 ---
 
@@ -79,6 +83,12 @@ At the top of `main.py`, set these variables before running:
 ```bash
 python main.py
 ```
+
+From another working directory, invoke Python with the path to `main.py`;
+the data directory will still resolve beside the code. For video extraction
+and calibration, see [Data_Generation/README.md](Data_Generation/README.md).
+Calibration scripts, reference images, and generated calibration files live
+in `Data_Generation/calibration`.
 
 The script is **interactive** — it will open one plot window with a slider. Drag the slider to select the **start time** for the free-decay fit (should be near a peak a bit after the sprinkler begins ringing down). Close the window when done. After the window is closed, the script runs automatically and prints estimated/fitted values to the terminal.
 
@@ -202,7 +212,7 @@ python -m unittest discover -s tests -v
 
 **Saved file (if `write_t = 1`):**
 
-Output is written to `data_dir` with the name `{spin_dir}_{Re}_trial{N}_signal.csv` — e.g. `forward_1000_trial1_signal.csv`. If a file with that name already exists, it is deleted and replaced. The file contains two columns covering the second half of the stitched signal (the physically meaningful forcing window):
+Output is written to `data_dir` with the name `{Re}{spin_dir}{N}_data_signal.csv` — e.g. `1000r1_data_signal.csv`. If a file with that name already exists, it is deleted and replaced. The file contains two columns covering the second half of the stitched signal (the physically meaningful forcing window):
 
 | Column | Description |
 |--------|-------------|
