@@ -74,7 +74,7 @@ geometry_factor_cm2 = -21.6528  # signed integral (x dy - y dx), ONE arm outward
 # +1 if positive measured rotation matches +z for G; otherwise -1.
 # Set from the experimental convention, never by selecting the better fit.
 sign_convention = 1
-write_impulse_summary = 1  # separate CSV; existing signal export is unchanged
+write_impulse_summary = 1  # write a separate impulse-summary CSV
 
 # DEFINE DEPENDENCIES AND UDFs
 import os
@@ -94,7 +94,7 @@ from dataread_funcs import read_data, plot_data, fit_segments
 from estimate_funcs import est_a, est_b, get_constants, fit_phi
 
 # PROCESS FUNCS
-from process_funcs import combine_data, remove_noise
+from process_funcs import combine_data, remove_noise, validate_recording
 
 # PLOT FUNCS
 from plot_funcs import plot_analytical, plot_franken, plot_phi_gen, plot_torque, plot_torque_int
@@ -133,6 +133,7 @@ else:
 
 # read data for time t, angle phi  data, get size of data, and find peaks of data
 full_t, full_phi, N, t_peaks, phi_peaks = read_data(input_path) # converts from degrees to radians
+full_t, full_phi = validate_recording(full_t, full_phi)
 
 # lets user look at plot and define fitting target point t_fit (t_f)
 t_fit = plot_data(full_t, full_phi, 1)
@@ -202,7 +203,8 @@ fourier_t, fourier_phi, N_added = combine_data(full_t, full_phi, phi_an)
 # SECTION FOUR - FOURIER TRANSFORM
 ###################################################################################################
 
-N_f = 2*2048
+N_f = len(fourier_phi)
+# Retain the existing FFT period/frequency convention for this focused fix.
 L = fourier_t[-1] - fourier_t[0]
 h = L/N_f
 
@@ -215,7 +217,7 @@ for i in range(len(fourier_phi)):
         break
     else:
         if (fourier_phi[i] != 0):
-            turnOnIdx = i - 2048
+            turnOnIdx = i - N_added
             stopper = True
         
 # print("turnOnIdx :", turnOnIdx)
@@ -230,16 +232,16 @@ if(lowpass_switch == 1):
 
 
     # sos = cheby2(N=7, rs=40, Wn=0.8, btype="low", output="sos")
-    # signal[turnOnIdx:(index+2048)] = sosfiltfilt(sos, signal[turnOnIdx:(index+2048)])
+    # signal[turnOnIdx:(index+N_added)] = sosfiltfilt(sos, signal[turnOnIdx:(index+N_added)])
 
     # sos = cheby2(N=7, rs=40, Wn=0.1, btype="low", output="sos")
-    # signal[(index + 2048):] = sosfiltfilt(sos, signal[(2048 + index):])
+    # signal[(index + N_added):] = sosfiltfilt(sos, signal[(N_added + index):])
     
     # b,a = butter(N=7, Wn=0.5, btype="low")
-    # signal[turnOnIdx:(2048 + index)] = filtfilt(b, a, signal[turnOnIdx:(2048 + index)])
+    # signal[turnOnIdx:(N_added + index)] = filtfilt(b, a, signal[turnOnIdx:(N_added + index)])
 
     # b,a = butter(N=7, Wn=0.1, btype="low")
-    # signal[(2048 + index):] = filtfilt(b, a, signal[(2048 + index):])
+    # signal[(N_added + index):] = filtfilt(b, a, signal[(N_added + index):])
     
 # plt.plot(fourier_t, extracted_torque, label="after smooth")
 # plt.legend()
@@ -344,14 +346,14 @@ if(write_t == 1):
     if os.path.exists(out_path):
         os.remove(out_path)
         print("Existing file removed: ", out_path)
-    np.savetxt(out_path, np.column_stack([fourier_t[N_f//2:], np.real(extracted_torque[N_f//2:])]),
-           delimiter=',', header='t,extracted_torque', comments='')
+    np.savetxt(out_path, np.column_stack([fourier_t_seg, true_torque]),
+           delimiter=',', header='time_seconds,torque_dyn_cm', comments='')
     print("Extractes torque saved to: ", out_path)
 
 
 if(plot_switch == 1):
     # plot_analytical(full_t, full_phi, phi_an(full_t), fit_index)
-    # plot_franken(fourier_t, fourier_phi, full_t, fit_index, t_end)
+    # plot_franken(fourier_t, fourier_phi, full_t, fit_index, None)
     plot_torque(fourier_t_seg, true_torque)
     mark_impulse_windows(plt.gca(), impulse_results)
     plot_torque_int(fourier_t_seg, cummInt)

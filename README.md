@@ -27,15 +27,17 @@ Step 6 → Save torque signal to CSV and plot results
 ## Dependencies
 
 ```
-numpy
+numpy>=2
 scipy
 matplotlib
 ```
 
 Install with:
 ```bash
-pip install numpy scipy matplotlib
+pip install 'numpy>=2' scipy matplotlib
 ```
+
+`main.py` uses `np.trapezoid`, which requires NumPy 2 or newer.
 
 ---
 
@@ -58,6 +60,19 @@ Example: `1000r1_data.csv`
 The default input directory is `Data_Generation/data`, resolved relative to
 `main.py`. Input and output paths do not depend on the terminal's working
 directory, and the script does not change that directory.
+
+Recordings must have matching, finite, real one-dimensional time and angle
+arrays with at least two samples and strictly increasing timestamps. FFT
+reconstruction requires approximately uniform sampling: every interval must
+match the mean interval within `rtol=1e-4, atol=1e-12` seconds. Unsupported
+recordings raise `ValueError`; irregular recordings need resampling first.
+
+Every original sample and timestamp is retained, including recordings with
+2,048 or more samples. The FFT base length is the smallest power of two at
+least as large as the recording, with a minimum of 2,048; the total FFT length
+is twice that base. The remaining samples are prepended at the initial angle,
+with timestamps at integer sampling intervals before the first original time.
+Recordings shorter than 2,048 retain the existing 4,096-sample padded length.
 
 ---
 
@@ -194,7 +209,8 @@ cumulative integrals, zeroed at the exact left endpoint. Set
 `write_impulse_summary = 1` to write a separate `{data_name}_impulses.csv` in
 `data_dir` (replaced on reruns), including run identity, windows,
 inputs, predictions, residuals, ratios, and sensitivity ranges. Unavailable theory
-fields are blank. The original signal CSV format is unchanged.
+fields are blank. The separate optional signal CSV now exports dimensional
+torque on the original time segment, as described below.
 
 Run the synthetic verification suite with:
 
@@ -212,12 +228,24 @@ python -m unittest discover -s tests -v
 
 **Saved file (if `write_t = 1`):**
 
-Output is written to `data_dir` with the name `{Re}{spin_dir}{N}_data_signal.csv` — e.g. `1000r1_data_signal.csv`. If a file with that name already exists, it is deleted and replaced. The file contains two columns covering the second half of the stitched signal (the physically meaningful forcing window):
+Output is written to `data_dir` with the name `{Re}{spin_dir}{N}_data_signal.csv`
+— e.g. `1000r1_data_signal.csv`. The filename is unchanged, and an existing
+file is replaced. The export contains exactly one row per original input
+sample, with no artificial padding. Its header is `time_seconds,torque_dyn_cm`.
 
 | Column | Description |
 |--------|-------------|
-| `t` | time |
-| `torque_signal` | real part of extracted torque signal |
+| `time_seconds` | Original experimental timestamp, in seconds |
+| `torque_dyn_cm` | Dimensional torque in dyn·cm, identical to `true_torque` used for impulse analysis |
+
+This corrects **both the exported time segment and physical units**. Previously,
+the export started at the midpoint of the padded array (`N_f//2`) and wrote
+unscaled reconstructed forcing under `t,extracted_torque`. That midpoint can
+include artificial padding and does not generally match the input recording.
+The new export starts at `N_added` and uses torque scaled by the inferred
+moment of inertia `I = kappa/c**2`, after the existing optional filtering.
+Old signal CSVs are not in dyn·cm and should not be compared directly with
+the new dimensional values; rerun the analysis to regenerate them.
 
 **Plots (if `plot_switch = 1`):**
 1. **Analytical solution** — raw data (scatter) overlaid with the damped oscillator fit (line); zoomed to the fit region, with the fit start point highlighted
@@ -250,12 +278,22 @@ Transient_Dynamics_Sprinkler/
 
 3. **ODE fit (optional):** Both ω and γ are further refined by fitting the full free-decay segment to the analytical damped oscillator solution using `scipy.optimize.curve_fit`.
 
-4. **Signal stitching ("Franken" signal):** A constant pre-forcing segment is prepended to the data. If the data is being processes, this includes the analytical free-decay solution is appended after the forcing ends. This creates a periodic-compatible signal for the FFT.
+4. **Signal padding ("Franken" signal):** A constant initial-value segment is prepended to the full recording. No original samples are trimmed, and no analytical tail is appended. `phi_an` remains an argument of `combine_data` for compatibility but is unused there.
 
 5. **Torque extraction (FFT):** The torque signal `f(t)` is extracted by deconvolving the ODE's transfer function `G(k)` in Fourier space:
    `F(k) = Y(k) / G(k)`, where `G(k) = -1 / (k² + 2iγk - ω²)`
 
 6. **Verification (forward ODE):** The extracted torque signal is used as forcing when solving ODE (RK45) to reconstruct φ(t).
+
+The existing frequency/transfer-function convention is retained: `L` is the
+last padded timestamp minus the first, and the frequency vector sets its
+Nyquist entry to zero. Using `N_f * dt` as the FFT period or treating Nyquist
+differently are separate numerical questions; this length/export fix does
+not change them. Fitting, filtering, and impulse integration are unchanged.
+The existing noise-removal algorithm can compute an empty pre-motion baseline
+when its detected onset index is zero (including when the threshold is never
+crossed). Resulting nonfinite values are now rejected before FFT reconstruction;
+the baseline-selection algorithm is a separate issue and is unchanged here.
 
 ---
 

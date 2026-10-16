@@ -33,8 +33,7 @@ def plot_franken(franken_t, franken_y, full_t, index, t_end):
     if has_tail:
         n_neg = len(franken_t) - len(full_t[:index]) - len(t_end)
     else:
-        checker = True
-        n_neg = 2048
+        n_neg = len(franken_t) - len(full_t)
 
         
 
@@ -44,7 +43,7 @@ def plot_franken(franken_t, franken_y, full_t, index, t_end):
         t_orig  = franken_t[n_neg:n_neg + index]
         t_tail  = franken_t[n_neg + index:]
     else:
-        t_orig = franken_t[2048:4096]
+        t_orig = franken_t[n_neg:]
 
     y_zeros = franken_y[:n_neg]
     
@@ -52,10 +51,10 @@ def plot_franken(franken_t, franken_y, full_t, index, t_end):
         y_orig  = franken_y[n_neg:n_neg + index]
         y_tail  = franken_y[n_neg + index:]
     else:
-        y_orig = franken_y[2048:4096]
+        y_orig = franken_y[n_neg:]
 
     plt.figure()
-    plt.plot(t_zeros, y_zeros, color='cornflowerblue', linewidth=2, label='added zeros')
+    plt.plot(t_zeros, y_zeros, color='cornflowerblue', linewidth=2, label='initial-value padding')
     plt.plot(t_orig,  y_orig,  color='hotpink',        linewidth=2, label='original data')
     
     if has_tail:
