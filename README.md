@@ -189,7 +189,8 @@ full recording. Exports contain every original sample, without padding.
 shutdown with exact, linearly interpolated integration endpoints, preserving its
 existing units (**dyn·cm·s = g·cm²/s**), signs and sensitivity calculations. There
 is no baseline subtraction and no jump-to-jump impulse. Window sensitivity varies
-both ends by 0.25 and 0.5 s where valid; it is not a statistical confidence interval.
+both ends by 0.25 s where valid, including the original window in the reported
+range; it is not a statistical confidence interval.
 
 The current flow setting preserves the existing relation `Q = Re * 0.0094` cm³/s,
 a positive **total flow through both arms**. Verify this conversion for your batch.

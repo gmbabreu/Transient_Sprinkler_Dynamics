@@ -189,13 +189,14 @@ def _valid_sensitivity_windows(
     time_s,
     chosen_window,
     other_window,
-    changes_s=(-0.5, -0.25, 0.0, 0.25, 0.5),
+    changes_s=(-0.25, 0.0, 0.25),
 ):
     """
     Generate nearby windows for checking sensitivity to integration limits.
 
     Each positive change expands the window equally on both sides.
     Each negative change contracts it equally on both sides.
+    Defaults check a 0.25-second contraction, the original, and a 0.25-second expansion.
     Invalid windows are discarded.
     """
     candidates = []

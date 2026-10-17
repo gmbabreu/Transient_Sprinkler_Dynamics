@@ -116,8 +116,10 @@ class ImpulseTests(unittest.TestCase):
         self.assertAlmostEqual(rows[1]['J_measured_dyn_cm_s'], 6.)
 
     def test_sensitivity_filters_invalid_variants(self):
+        rows = self.analyze()
+        self.assertEqual(rows[0]['sensitivity_windows_s'], '9.28:11.82; 9.03:12.07; 8.78:12.32')
         rows = self.analyze(startup_window=(9.9, 19.0), shutdown_window=(19.1, 20.1))
-        self.assertEqual(rows[0]['sensitivity_windows_s'], '10.4:18.5; 10.15:18.75; 9.9:19')
+        self.assertEqual(rows[0]['sensitivity_windows_s'], '10.15:18.75; 9.9:19')
         self.assertEqual(rows[1]['sensitivity_windows_s'], '19.35:19.85; 19.1:20.1')
 
 
