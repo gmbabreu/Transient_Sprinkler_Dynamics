@@ -304,6 +304,12 @@ def analyze_impulses(
             integrate_impulse(time_s, torque_dyn_cm, candidate)
             for candidate in sensitivity_windows
         ]
+        # Keep the two named changes so the report can show contraction first,
+        # even when it produces a larger signed impulse than expansion does.
+        contracted = next((value for candidate, value in zip(sensitivity_windows, sensitivity_values)
+                           if candidate[0] > window[0] and candidate[1] < window[1]), None)
+        expanded = next((value for candidate, value in zip(sensitivity_windows, sensitivity_values)
+                         if candidate[0] < window[0] and candidate[1] > window[1]), None)
 
         residual = None if theory is None else measured - theory
         ratio = None if theory is None or theory == 0 else measured / theory
@@ -317,6 +323,8 @@ def analyze_impulses(
                 "J_theory_dyn_cm_s": theory,
                 "residual_dyn_cm_s": residual,
                 "measured_over_theory": ratio,
+                "sensitivity_contracted_dyn_cm_s": contracted,
+                "sensitivity_expanded_dyn_cm_s": expanded,
                 "sensitivity_min_dyn_cm_s": min(sensitivity_values),
                 "sensitivity_max_dyn_cm_s": max(sensitivity_values),
                 "sensitivity_windows_s": "; ".join(
@@ -362,11 +370,12 @@ def report_impulses(results):
             else:
                 print(f"  measured/theory = {ratio:.6g}")
 
-        print(
-            "  window sensitivity = "
-            f"[{row['sensitivity_min_dyn_cm_s']:.6g}, "
-            f"{row['sensitivity_max_dyn_cm_s']:.6g}]"
-        )
+        contracted = row["sensitivity_contracted_dyn_cm_s"]
+        expanded = row["sensitivity_expanded_dyn_cm_s"]
+        contracted_text = "unavailable" if contracted is None else f"{contracted:.6g}"
+        expanded_text = "unavailable" if expanded is None else f"{expanded:.6g}"
+        print("  window sensitivity (contracted, expanded) = "
+              f"[{contracted_text}, {expanded_text}]")
 
     if len(results) == 2:
         j_start = results[0]["J_measured_dyn_cm_s"]

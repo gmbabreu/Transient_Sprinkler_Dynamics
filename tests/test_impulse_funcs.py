@@ -115,12 +115,34 @@ class ImpulseTests(unittest.TestCase):
         rows = self.analyze(shutdown_window=(21, 23))
         self.assertAlmostEqual(rows[1]['J_measured_dyn_cm_s'], 6.)
 
+    def test_sensitivity_reports_contraction_before_expansion(self):
+        rows = analyze_impulses(self.t, np.full_like(self.t, -2.), self.t,
+                                startup_window=(9., 12.), shutdown_window=(19., 22.))
+        for row in rows:
+            self.assertEqual(row['sensitivity_contracted_dyn_cm_s'], -5.)
+            self.assertEqual(row['sensitivity_expanded_dyn_cm_s'], -7.)
+            # The plotted range still uses numerical minimum/maximum.
+            self.assertEqual(row['sensitivity_min_dyn_cm_s'], -7.)
+            self.assertEqual(row['sensitivity_max_dyn_cm_s'], -5.)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            report_impulses(rows)
+        self.assertEqual(output.getvalue().count(
+            'window sensitivity (contracted, expanded) = [-5, -7]'), 2)
+
     def test_sensitivity_filters_invalid_variants(self):
         rows = self.analyze()
         self.assertEqual(rows[0]['sensitivity_windows_s'], '9.28:11.82; 9.03:12.07; 8.78:12.32')
         rows = self.analyze(startup_window=(9.9, 19.0), shutdown_window=(19.1, 20.1))
         self.assertEqual(rows[0]['sensitivity_windows_s'], '10.15:18.75; 9.9:19')
         self.assertEqual(rows[1]['sensitivity_windows_s'], '19.35:19.85; 19.1:20.1')
+        self.assertIsNone(rows[0]['sensitivity_expanded_dyn_cm_s'])
+        rows = self.analyze(startup_window=(9.9, 10.2))
+        self.assertIsNone(rows[0]['sensitivity_contracted_dyn_cm_s'])
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            report_impulses(rows)
+        self.assertIn('window sensitivity (contracted, expanded) = [unavailable, ', output.getvalue())
 
 
 if __name__ == '__main__':

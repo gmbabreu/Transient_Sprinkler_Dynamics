@@ -191,6 +191,11 @@ existing units (**dyn·cm·s = g·cm²/s**), signs and sensitivity calculations.
 is no baseline subtraction and no jump-to-jump impulse. Window sensitivity varies
 both ends by 0.25 s where valid, including the original window in the reported
 range; it is not a statistical confidence interval.
+The terminal reports `[contracted, expanded]` in that order, rather than sorting
+those two impulse values. Invalid variants appear as `unavailable`. CSVs include
+the corresponding `sensitivity_contracted_dyn_cm_s` and
+`sensitivity_expanded_dyn_cm_s` fields. The numerical minimum/maximum across
+valid variants and the original window remain available for plotting the range.
 
 The current flow setting preserves the existing relation `Q = Re * 0.0094` cm³/s,
 a positive **total flow through both arms**. Verify this conversion for your batch.
@@ -207,7 +212,7 @@ and other numerical changes are deferred.
 
 The original test suite and focused batch checks exercise reconstruction/export,
 group selection, saved timing/selections, reselection and invalid-trial exclusion.
-All 29 Python tests passed with both Python 3.12/NumPy 2 and the default
+All 30 Python tests passed with both Python 3.12/NumPy 2 and the default
 Python 3.9/NumPy 1.23.5 environment, including shared group/repeat expansion
 and invalid configuration checks. MATLAB R2026a syntax
 checks and synthetic AVI/JPEG/WAV checks also passed: extraction completion and
