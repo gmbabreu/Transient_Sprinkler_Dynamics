@@ -2,17 +2,19 @@ clc
 close all
 clear
 
-% Keep the reference image and generated result in this calibration folder.
+% Read shared batch paths; the ruler clicks, fitted axis and spline method
+% below remain unchanged. The same saved result is reused for all batch trials.
 calibrationDir = fileparts(mfilename('fullpath'));
+addpath(fileparts(calibrationDir));
+config = loadBatchConfig();
 
 %% SETUP
-file = "frame"
 rulerValues = [8 10 14 17.5 22 26 28];
 numPoints = numel(rulerValues);
 
 originValue = 17.5;          % Physical value chosen as xC
 
-imageData = imread(fullfile(calibrationDir, file + ".jpg"));
+imageData = imread(config.paths.calibration_reference);
 
 %% COLLECT CLICKS
 
@@ -111,4 +113,7 @@ rulerCalibration.originValue = originValue;
 
 rulerCalibration.pixelToDistanceSpline = pixelToDistanceSpline;
 
-save(fullfile(calibrationDir, file + "_rulerCalibration.mat"),"rulerCalibration")
+% Honor a configured calibration destination, including a new batch folder.
+outputDir = fileparts(config.paths.ruler_calibration);
+if ~isfolder(outputDir), mkdir(outputDir); end
+save(config.paths.ruler_calibration,"rulerCalibration")

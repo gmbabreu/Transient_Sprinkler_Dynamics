@@ -390,8 +390,13 @@ def report_impulses(results):
 def save_impulse_summary(path, run_identity, results):
     """
     Save the raw impulse/theory comparison to a CSV file.
+
+    Supply a trial ID to attach it to that trial's startup/shutdown rows.
+    For a group summary, supply None and rows that already contain each
+    trial's run_identity; the individual result columns remain identical.
     """
-    records = [dict(run_identity=run_identity, **row) for row in results]
+    # Group summaries already carry an identity on every individual result.
+    records = results if run_identity is None else [dict(run_identity=run_identity, **row) for row in results]
 
     with open(path, "w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=list(records[0]))
@@ -399,23 +404,28 @@ def save_impulse_summary(path, run_identity, results):
         writer.writerows(records)
 
 
-def mark_impulse_windows(ax, results, annotate=True):
+def mark_impulse_windows(ax, results, annotate=True, *, time_offset_s=0.0, trial_id=None):
     """
     Mark selected integration windows on an existing axis.
+
+    Subtract time_offset_s for an aligned comparison plot while keeping the
+    results in original recording seconds. trial_id identifies each window
+    in a group legend. Existing individual plots keep their default behavior.
     """
     colors = ("tab:blue", "tab:orange")
 
     for row, color in zip(results, colors):
+        event_label = f"{trial_id}: {row['event']}" if trial_id else row['event']
         ax.axvspan(
-            row["window_start_s"],
-            row["window_end_s"],
+            row["window_start_s"] - time_offset_s,
+            row["window_end_s"] - time_offset_s,
             color=color,
             alpha=0.15,
-            label=f"{row['event']} integration window",
+            label=f"{event_label} integration window",
         )
 
         if annotate:
-            label = f"{row['event']} J = {row['J_measured_dyn_cm_s']:.4g} dyn*cm*s"
+            label = f"{event_label} J = {row['J_measured_dyn_cm_s']:.4g} dyn*cm*s"
             if row["J_theory_dyn_cm_s"] is not None:
                 label += f"\ntheory = {row['J_theory_dyn_cm_s']:.4g}"
 

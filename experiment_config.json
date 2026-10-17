@@ -1,0 +1,51 @@
+{
+  "paths": {
+    "trials": "Data_Generation/trials",
+    "frames": "Data_Generation/frames",
+    "data": "Data_Generation/data",
+    "output": "results",
+    "calibration_reference": "Data_Generation/calibration/frame.jpg",
+    "ruler_calibration": "Data_Generation/calibration/frame_rulerCalibration.mat"
+  },
+  "trial_groups": ["1000f", "1000r", "500f", "500r"],
+  "trials_per_group": 1,
+  "video": {
+    "extension": ".MTS",
+    "mirror_distance_inches": 48,
+    "regenerate_frames": false,
+    "masked_video": false,
+    "overlay_video": false,
+    "overlay_frames": false,
+    "laser_ycbcr_limits": [[100, 230], [95, 125], [160, 210]],
+    "circle_radius_pixels": 8,
+    "circle_thickness_pixels": 2
+  },
+  "physics": {
+    "kappa_dyn_cm_per_rad": 32102.99,
+    "rho_g_cm3": 1.0,
+    "flow_rate_per_re_cm3_s": 0.0094,
+    "geometry_factor_cm2": -21.6528,
+    "sign_convention": 1
+  },
+  "analysis": {
+    "fit_enabled": true,
+    "lowpass_enabled": true,
+    "cheby2_order": 4,
+    "cheby2_rs": 60,
+    "cheby2_wn": 0.5,
+    "display_plots": true
+  },
+  "audio": {
+    "startup_search_s": [9.5, 13],
+    "shutdown_search_s": [19, 23],
+    "audio_to_video_offset_s": 0,
+    "inspect": false,
+    "playback_enabled": false,
+    "playback_channels": [1, 2],
+    "playback_gain": 0.25
+  },
+  "integration_window_offsets_s": {
+    "startup": [1, 2],
+    "shutdown": [1, 2]
+  }
+}

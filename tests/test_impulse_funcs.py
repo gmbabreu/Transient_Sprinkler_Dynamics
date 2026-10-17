@@ -62,6 +62,26 @@ class ImpulseTests(unittest.TestCase):
             self.assertAlmostEqual(ax.lines[0].get_ydata()[-1], row['J_measured_dyn_cm_s'])
         plt.close(fig)
 
+    def test_window_markings_follow_plot_offset_without_changing_results(self):
+        rows = self.analyze()
+        original = [dict(row) for row in rows]
+        fig, ax = plt.subplots()
+        try:
+            mark_impulse_windows(ax, rows, time_offset_s=9., trial_id='1000r1')
+            self.assertEqual(len(ax.patches), 2)
+            for span, row in zip(ax.patches, rows):
+                # Polygon and Rectangle spans differ by Matplotlib version;
+                # transform their vertices back to the displayed data axis.
+                vertices = ax.transData.inverted().transform(
+                    span.get_transform().transform(span.get_path().vertices))
+                np.testing.assert_allclose(
+                    [vertices[:, 0].min(), vertices[:, 0].max()],
+                    [row['window_start_s'] - 9., row['window_end_s'] - 9.])
+                self.assertIn('1000r1', span.get_label())
+            self.assertEqual(rows, original)
+        finally:
+            plt.close(fig)
+
     def test_theory_signs_and_zero(self):
         for direction, flow_sign in [('f', 1), ('r', -1)]:
             for convention in (-1, 1):
