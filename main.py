@@ -82,8 +82,9 @@ def load_config(path=Path(__file__).with_name("experiment_config.json")):
     """Read the same JSON as MATLAB's loadBatchConfig and resolve its paths.
 
     Relative paths are based on the configuration file, not the shell's current
-    directory. Expand each configured group into repeats 1..trials_per_group,
-    in group order, so the rest of the workflow still receives full trial IDs.
+    directory. Expand each group into repeats 1..count, in group order. A scalar
+    trials_per_group supplies every count; an array supplies one per group.
+    The rest of the workflow still receives full trial IDs.
     Reject invalid group/count settings before processing any outputs.
     """
     path = Path(path).resolve()
@@ -97,13 +98,19 @@ def load_config(path=Path(__file__).with_name("experiment_config.json")):
         raise ValueError("trial_groups must be a nonempty list of group IDs such as 1000f.")
     if len(groups) != len(set(groups)):
         raise ValueError("Configured trial groups must be unique.")
-    count = config["trials_per_group"]
-    if (isinstance(count, bool) or not isinstance(count, (int, float))
-            or not np.isfinite(count) or count < 1 or count != int(count)):
-        raise ValueError("trials_per_group must be a positive integer.")
+    counts = config["trials_per_group"]
+    if not isinstance(counts, list):
+        counts = [counts] * len(groups)
+    if len(counts) != len(groups):
+        raise ValueError("trials_per_group must be a positive integer or an array "
+                         "with one positive integer per trial group.")
+    for count in counts:
+        if (isinstance(count, bool) or not isinstance(count, (int, float))
+                or not np.isfinite(count) or count < 1 or count != int(count)):
+            raise ValueError("Each trials_per_group count must be a positive integer.")
     # Keep full IDs as a derived in-memory list for the existing per-trial loops.
-    # Every group uses the same count; recordings are not discovered from disk.
-    config["trials"] = [f"{group}{repeat}" for group in groups
+    # Array counts follow trial_groups order; recordings are not discovered from disk.
+    config["trials"] = [f"{group}{repeat}" for group, count in zip(groups, counts)
                         for repeat in range(1, int(count) + 1)]
     return config
 

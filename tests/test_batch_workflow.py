@@ -47,6 +47,25 @@ class BatchConfigTests(unittest.TestCase):
             with self.subTest(groups=groups), self.assertRaisesRegex(ValueError, 'group'):
                 self.load(groups, 3)
 
+    def test_expands_individual_repeat_counts_in_group_order(self):
+        config = self.load(['1000f', '1000r', '500f', '500r'], [1, 2, 4, 5])
+        self.assertEqual(config['trials'], [
+            '1000f1',
+            '1000r1', '1000r2',
+            '500f1', '500f2', '500f3', '500f4',
+            '500r1', '500r2', '500r3', '500r4', '500r5',
+        ])
+        self.assertEqual(main.select_trials(config, 1000, 'r'), ['1000r1', '1000r2'])
+        self.assertEqual(self.load(['1000f'], [3])['trials'], ['1000f1', '1000f2', '1000f3'])
+        self.assertEqual(self.load(['1000f', '500r'], [1., 2.])['trials'],
+                         ['1000f1', '500r1', '500r2'])
+
+    def test_rejects_mismatched_or_invalid_count_arrays(self):
+        for counts in ([], [1], [1, 2, 3], [0, 2], [-1, 2], [1.5, 2],
+                       [True, 2], ['1', 2], [None, 2], [[1], 2]):
+            with self.subTest(counts=counts), self.assertRaisesRegex(ValueError, 'trials_per_group'):
+                self.load(['1000f', '500r'], counts)
+
     def test_rejects_nonpositive_or_noninteger_repeat_counts(self):
         for count in (0, -1, 1.5, True, '3', None, []):
             with self.subTest(count=count), self.assertRaisesRegex(ValueError, 'positive integer'):

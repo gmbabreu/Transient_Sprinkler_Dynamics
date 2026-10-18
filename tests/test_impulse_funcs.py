@@ -96,6 +96,25 @@ class ImpulseTests(unittest.TestCase):
             self.assertEqual(row['J_theory_dyn_cm_s'], 0)
             self.assertIsNone(row['measured_over_theory'])
 
+    def test_report_relative_error_percentage(self):
+        base_row = self.analyze()[0]
+        for measured, theory, expected in (
+            (-120., -100., '20.00%'),
+            (-80., -100., '20.00%'),
+            (100., -100., '200.00%'),
+            (-100., -100., '0.00%'),
+            (-120., 0., 'undefined (zero theoretical impulse)'),
+        ):
+            with self.subTest(measured=measured, theory=theory):
+                row = dict(base_row, J_measured_dyn_cm_s=measured,
+                           J_theory_dyn_cm_s=theory, residual_dyn_cm_s=measured-theory)
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    report_impulses([row])
+                self.assertIn(f'relative error = {expected}', output.getvalue())
+                self.assertNotIn('  residual   =', output.getvalue())
+                self.assertNotIn('  measured/theory =', output.getvalue())
+
     def test_invalid_inputs(self):
         for t in ([0, 0, 1], [0, 2, 1], [0, float('nan'), 2]):
             with self.assertRaises(ValueError):

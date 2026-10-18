@@ -11,10 +11,15 @@ startup and shutdown, and compare individual trials against theory.
 
 1. **Configure the batch.** Edit [`experiment_config.json`](experiment_config.json).
    Put recordings in the configured `paths.trials` folder. List the run groups
-   under `trial_groups` and set one shared `trials_per_group` count. For example,
+   under `trial_groups` and set `trials_per_group` to a shared count or an array
+   containing one count per group, in the same order. For example,
    `"trial_groups": ["1000f", "500r", "1500f"]` with `"trials_per_group": 3`
    processes repeats 1, 2 and 3 for every group: `1000f1` through `1000f3`,
-   `500r1` through `500r3`, and `1500f1` through `1500f3`. The default count of 1
+   `500r1` through `500r3`, and `1500f1` through `1500f3`. Alternatively,
+   `"trial_groups": ["1000f", "1000r", "500f", "500r"]` with
+   `"trials_per_group": [1, 2, 4, 5]` processes 1, 2, 4 and 5 repeats of those
+   groups, respectively. Array length must match the number of groups, and all
+   counts must be positive integers. The default count of 1
    retains the four existing example trial names. Keep only groups from one
    compatible camera/ruler setup. Names follow `{Re}{direction}{trial}`, where
    `f` is forward/outward flow and `r` is reverse/inward flow. Paths are relative
@@ -83,7 +88,7 @@ All shared batch settings live in `experiment_config.json`:
 | Setting | Purpose |
 | --- | --- |
 | `paths` | Inputs, generated data, calibration files and group results |
-| `trial_groups`, `trials_per_group` | Groups such as `1000f` and one positive integer repeat count shared by every group |
+| `trial_groups`, `trials_per_group` | Groups such as `1000f`; a shared positive integer repeat count or an array with one count per group, in order |
 | `video` | Extension, mirror distance in inches, laser YCbCr limits, extraction regeneration and tracking diagnostics |
 | `physics` | Spring stiffness, density, flow conversion, signed one-arm geometry factor and sign convention |
 | `analysis` | Existing fit switch, Chebyshev torque-filter settings and diagnostic display |
@@ -197,6 +202,11 @@ the corresponding `sensitivity_contracted_dyn_cm_s` and
 `sensitivity_expanded_dyn_cm_s` fields. The numerical minimum/maximum across
 valid variants and the original window remain available for plotting the range.
 
+The terminal compares each measured impulse with theory using
+`relative error = 100 * abs(measured - theory) / abs(theory)` percent, displayed
+to two decimal places. A zero theoretical impulse gives an undefined percentage.
+Residuals and measured/theory ratios remain available in the CSV exports.
+
 The current flow setting preserves the existing relation `Q = Re * 0.0094` cm³/s,
 a positive **total flow through both arms**. Verify this conversion for your batch.
 `G` is the signed integral `x dy - y dx` along **one arm outward from the hub**;
@@ -212,7 +222,7 @@ and other numerical changes are deferred.
 
 The original test suite and focused batch checks exercise reconstruction/export,
 group selection, saved timing/selections, reselection and invalid-trial exclusion.
-All 30 Python tests passed with both Python 3.12/NumPy 2 and the default
+All 33 Python tests passed with both Python 3.12/NumPy 2 and the default
 Python 3.9/NumPy 1.23.5 environment, including shared group/repeat expansion
 and invalid configuration checks. MATLAB R2026a syntax
 checks and synthetic AVI/JPEG/WAV checks also passed: extraction completion and

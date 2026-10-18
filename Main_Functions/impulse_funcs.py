@@ -361,14 +361,15 @@ def report_impulses(results):
         if row["J_theory_dyn_cm_s"] is None:
             print("  theory     = unavailable (flow rate and/or geometry factor missing)")
         else:
-            print(f"  theory J   = {row['J_theory_dyn_cm_s']:.6g}")
-            print(f"  residual   = {row['residual_dyn_cm_s']:.6g}")
-
-            ratio = row["measured_over_theory"]
-            if ratio is None:
-                print("  measured/theory = undefined (zero theoretical impulse)")
+            theory = row["J_theory_dyn_cm_s"]
+            print(f"  theory J   = {theory:.6g}")
+            if theory == 0:
+                print("  relative error = undefined (zero theoretical impulse)")
             else:
-                print(f"  measured/theory = {ratio:.6g}")
+                # Compare signed impulses against the theoretical magnitude,
+                # so an opposite-sign measurement still counts as disagreement.
+                relative_error = abs(row["residual_dyn_cm_s"]) / abs(theory)
+                print(f"  relative error = {100 * relative_error:.2f}%")
 
         contracted = row["sensitivity_contracted_dyn_cm_s"]
         expanded = row["sensitivity_expanded_dyn_cm_s"]
