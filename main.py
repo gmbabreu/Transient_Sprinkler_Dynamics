@@ -18,7 +18,8 @@
         7. Saves individual torque/impulse CSVs and plots the group's results
 
     All sections of this code are clearly labelled as above for
-    process transparency. Sections 1-6 run once per trial in analyze_trial;
+    process transparency. Sections 2-6 are narrated in scientific_pipeline;
+    analyze_trial runs them around each trial's saved/interactive selections;
     section 7 saves and compares successful trials in run_group.
 
     Run, for example: python main.py 1000 f
@@ -41,29 +42,24 @@ import re
 
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy import integrate
-from scipy.signal import cheby2, sosfiltfilt
 
 # DATA READ FUNCS
-from Main_Functions.dataread_funcs import read_data, plot_data, fit_segments
-
-# ESTIMATE FUNCS
-from Main_Functions.estimate_funcs import est_a, est_b, get_constants, fit_phi
+from Main_Functions.dataread_funcs import read_data, plot_data
 
 # PROCESS FUNCS
-from Main_Functions.process_funcs import combine_data, validate_recording
+from Main_Functions.process_funcs import validate_recording
 
 # PLOT FUNCS
 from Main_Functions.plot_funcs import plot_torque, plot_torque_int, plot_phi_gen
 
 # IMPULSE FUNCS
 from Main_Functions.impulse_funcs import (
-    analyze_impulses, report_impulses, save_impulse_summary,
+    report_impulses, save_impulse_summary,
     mark_impulse_windows, plot_impulse_diagnostics, select_impulse_windows, validate_window,
 )
 
-# FOURIER TRANSFORM FUNCS
-from Main_Functions.fft_funcs import torque_solver, phi_from_torque
+# SCIENTIFIC STAGES (pure calculations; workflow remains here)
+from Main_Functions.scientific_pipeline import reconstruct_torque, measure_event_impulses
 
 
 def parse_trial(trial_id):
@@ -204,91 +200,21 @@ def analyze_trial(trial_id, config, *, reselect=False, interactive=True):
         raise ValueError("Fit start must be within the original recording.")
     metadata["fit_start_s"] = float(t_fit)
     save_metadata(metadata_path, metadata)
-    # Return the segment of t and phi after the chosen time for fitting.
-    fit_index, fit_peaks_index, t_fit, t_seg, phi_seg = fit_segments(
-        full_t, full_phi, t_peaks, t_fit)
-
-    # SECTION TWO - ESTIMATE OMEGA AND GAMMA
-    ###############################################################################################
-    # Preserve the original peak estimates and optional damped-oscillator fit.
-    # b is the fitted decay rate and c is the natural-frequency parameter.
-    # Estimate a from data.
-    a_est = est_a(fit_peaks_index, t_fit, t_peaks)
-    # Estimate b from data.
-    b_est = est_b(fit_peaks_index, t_peaks, phi_peaks)
-    # Estimate c from a and b.
-    c_est = np.sqrt((a_est*a_est) + (b_est*b_est))
-    # Get the ODE constants using the estimates for gamma and omega.
-    C1_est, C2_est = get_constants(b_est, c_est, full_phi[fit_index])
-    if settings["fit_enabled"]:
-        # Fit the data.
-        b, c, C_1, C_2 = fit_phi(t_seg, phi_seg, b_est, c_est, C1_est, C2_est,
-                                full_t[fit_index])
-    else:
-        # Set end values as estimates if no fit is requested.
-        b = b_est
-        c = c_est
-        C_1 = C1_est
-        C_2 = C2_est
-
-    # Define the analytical solution in terms of the newly found values.
-    def phi_an(t):
-        """Retain the analytical fit accepted by the existing padding API.
-
-        combine_data currently prepends constant initial-value padding; it
-        does not append this analytical curve or replace measured samples.
-        """
-        t0 = t_peaks[fit_peaks_index]
-        a = np.sqrt(c**2 - b**2)
-        return np.exp(-b * (t - t0)) * (C_1 * np.cos(a * (t - t0))
-                                        + C_2 * np.sin(a * (t - t0)))
-
-    # SECTION THREE - PREPARE DATA WITH INITIAL MEASUREMENT NOISE RETAINED
-    ###############################################################################################
-    # The former remove_noise call is bypassed; keep the original FFT padding.
-    fourier_t, fourier_phi, N_added = combine_data(full_t, full_phi, phi_an)
-
-    # SECTION FOUR - FOURIER TRANSFORM
-    ###############################################################################################
-    N_f = len(fourier_phi)
-    # Keep the existing FFT period and normalized Chebyshev cutoff convention;
-    # batching changes which trials run, not the numerical reconstruction.
-    L = fourier_t[-1] - fourier_t[0]
-    # Output the extracted torque signal, then retain its real part.
-    extracted_torque = torque_solver(N_f, b, c, L, fourier_phi)
-    extracted_torque = np.real(extracted_torque)
-    if settings["lowpass_enabled"]:
-        sos = cheby2(N=settings["cheby2_order"], rs=settings["cheby2_rs"],
-                     Wn=settings["cheby2_wn"], btype="low", output="sos")
-        extracted_torque = sosfiltfilt(sos, extracted_torque)
-
-    # Remove exactly the prepended padding. These timestamps then match the
-    # input recording, so exports and integration use only measured samples.
-    fourier_t_seg = fourier_t[N_added:]
-    fourier_phi_seg = fourier_phi[N_added:]
-    extracted_torque_seg = extracted_torque[N_added:]
-
-    # SECTION FIVE - DO FORWARD PROBLEM WITH TORQUE SIGNAL
-    ###############################################################################################
-    phi_forward = phi_from_torque(N_f, fourier_t_seg, extracted_torque_seg, b, c)
-    # SciPy's trapezoidal rule also supports environments using NumPy 1.x.
-    error_forward = (np.sqrt(integrate.trapezoid((phi_forward - fourier_phi_seg)**2,
-                                        x=fourier_t_seg))
-                     / np.sqrt(integrate.trapezoid(fourier_phi_seg**2, x=fourier_t_seg)))
-    print("Error of forward problem: ", error_forward)
-
-    # SECTION SIX - COMPUTE TORQUE INTEGRALS
-    ###############################################################################################
+    # SECTIONS TWO-SIX - RECONSTRUCT TORQUE BEFORE SELECTING INTEGRATION WINDOWS
+    # The scientific narrative lives in scientific_pipeline; this function keeps
+    # the original workflow order, metadata, interaction and parameter report.
     physics = config["physics"]
-    kappa = physics["kappa_dyn_cm_per_rad"]
-    # The solver returns forcing per unit inertia. Scale by I to obtain
-    # dimensional torque in dyn cm, using the same relation as before.
-    I = kappa/c**2  # solve for inertia, in units of g cm^2
-    delta = b*I  # solve for damping coefficient, in units of g cm^2 s^-1
-    xi = delta/(2*np.sqrt(kappa*I))  # solve for damping ratio, dimensionless
-    w0 = (delta/I)/(2*xi)  # solve for natural frequency, units of s^-1
-    T0 = (2*np.pi)/w0  # solve for natural, undamped period, units of s
-    Td = 1/(xi*w0)  # solve for decay timescale, units of s
+    reconstruction = reconstruct_torque(
+        full_t, full_phi, t_peaks, phi_peaks, t_fit, settings, physics)
+    fourier_t_seg = reconstruction["time"]
+    true_torque = reconstruction["torque"]
+    cummInt = reconstruction["cumulative"]
+    phi_forward = reconstruction["phi_forward"]
+    b, c = reconstruction["b"], reconstruction["c"]
+    kappa, I = reconstruction["kappa"], reconstruction["inertia"]
+    delta, xi = reconstruction["delta"], reconstruction["xi"]
+    w0, T0, Td = reconstruction["w0"], reconstruction["T0"], reconstruction["Td"]
+    print("Error of forward problem: ", reconstruction["error_forward"])
 
     # Retain the original parameter report and its existing damping convention.
     W = 28  # label column width
@@ -303,11 +229,6 @@ def analyze_trial(trial_id, config, *, reselect=False, interactive=True):
     print(f"{'Undamped natural period, T₀':<{W}} {T0:>8.2f}  s")
     print(f"{'Decay timescale, τ_d':<{W}} {Td:>8.2f}  s")
     print("=" * 52)
-
-    true_torque = extracted_torque_seg * I
-    # This full-record cumulative curve is for plotting. The two measured
-    # event impulses below are integrated separately within their own bounds.
-    cummInt = integrate.cumulative_trapezoid(np.real(true_torque), fourier_t_seg, initial=0)
 
     # Audio initializes only missing windows. Existing integration selections
     # remain fixed even if a manual audio correction is edited later.
@@ -334,17 +255,9 @@ def analyze_trial(trial_id, config, *, reselect=False, interactive=True):
     if interactive and needs_selection:
         windows = select_impulse_windows(fourier_t_seg, true_torque, *windows)
 
-    flow_factor = physics["flow_rate_per_re_cm3_s"]
-    # Reuse the existing signed integration, theory and sensitivity code for
-    # startup and shutdown, with no new baseline or between-event integral.
-    impulse_results = analyze_impulses(
-        fourier_t_seg, true_torque, full_t,
-        startup_window=windows[0], shutdown_window=windows[1],
-        rho_g_cm3=physics["rho_g_cm3"],
-        flow_rate_cm3_s=None if flow_factor is None else reynolds * flow_factor,
-        geometry_factor_cm2=physics["geometry_factor_cm2"],
-        sign_convention=physics["sign_convention"], spin_dir=direction,
-    )
+    # Finish the scientific calculation only after window selection/validation.
+    impulse_results = measure_event_impulses(
+        fourier_t_seg, true_torque, full_t, windows, physics, reynolds, direction)
     # Torque-window selection never modifies audio times or manual corrections.
     metadata["integration_windows_s"] = {
         event: [float(value) for value in window]
@@ -376,9 +289,8 @@ def plot_group_results(trials, output_dir, group):
             plotter(trial["time"] - trial["startup_time"], trial[field],
                     ax=ax, label=trial["trial_id"])
             # Apply the same display-only time shift to the selected intervals.
-            # Multiple trials retain their shaded windows and legend labels;
-            # numerical annotation boxes are shown only for a single trial.
-            mark_impulse_windows(ax, trial["impulses"], annotate=len(trials) == 1,
+            # Retain shaded windows and legend labels without numerical boxes.
+            mark_impulse_windows(ax, trial["impulses"], annotate=False,
                                  time_offset_s=trial["startup_time"], trial_id=trial["trial_id"])
         ax.set_xlabel("Time from effective startup (s)")
         ax.set_title(f"{group}: {field}")

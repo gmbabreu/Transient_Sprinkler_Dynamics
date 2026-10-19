@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import main
+from Main_Functions import scientific_pipeline
 
 
 class MainReconstructionTests(unittest.TestCase):
@@ -39,8 +40,8 @@ class MainReconstructionTests(unittest.TestCase):
                                 integration_windows_s=dict(startup=[11.149896, 12.149896],
                                                            shutdown=[21.149896, 22.149896]))
                 (directory / '1000r1_metadata.json').write_text(json.dumps(metadata))
-                with patch.object(main, 'analyze_impulses', wraps=main.analyze_impulses) as analyze, \
-                     patch.object(main, 'phi_from_torque', wraps=main.phi_from_torque) as forward, \
+                with patch.object(scientific_pipeline, 'analyze_impulses', wraps=scientific_pipeline.analyze_impulses) as analyze, \
+                     patch.object(scientific_pipeline, 'phi_from_torque', wraps=scientific_pipeline.phi_from_torque) as forward, \
                      contextlib.redirect_stdout(io.StringIO()):
                     trials, failures = main.run_group(config, 1000, 'r', interactive=False, show=False)
                 try:
