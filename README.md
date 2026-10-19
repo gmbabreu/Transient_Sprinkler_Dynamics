@@ -9,69 +9,58 @@ startup and shutdown, and compare individual trials against theory.
 
 ## Four-step workflow
 
-1. **Configure the batch.** Edit [`experiment_config.json`](experiment_config.json).
-   Put recordings in the configured `paths.trials` folder. List the run groups
-   under `trial_groups` and set `trials_per_group` to a shared count or an array
-   containing one count per group, in the same order. For example,
-   `"trial_groups": ["1000f", "500r", "1500f"]` with `"trials_per_group": 3`
-   processes repeats 1, 2 and 3 for every group: `1000f1` through `1000f3`,
-   `500r1` through `500r3`, and `1500f1` through `1500f3`. Alternatively,
-   `"trial_groups": ["1000f", "1000r", "500f", "500r"]` with
-   `"trials_per_group": [1, 2, 4, 5]` processes 1, 2, 4 and 5 repeats of those
-   groups, respectively. Array length must match the number of groups, and all
-   counts must be positive integers. The default count of 1
-   retains the four existing example trial names. Keep only groups from one
-   compatible camera/ruler setup. Names follow `{Re}{direction}{trial}`, where
-   `f` is forward/outward flow and `r` is reverse/inward flow. Paths are relative
-   to the JSON file, independent of the working directory. Python also accepts
-   `--config /path/to/experiment_config.json`. Both loaders expand the groups
-   and repeat count into full trial IDs in memory; individual CSV and metadata
-   filenames stay unchanged.
-2. **Extract and calibrate in MATLAB.** Run `Data_Generation/save_frames.m`, then
-   `Data_Generation/calibration/calibrateRulerAxis.m` to click the ruler marks.
-   Complete extractions are skipped. Set `video.regenerate_frames` to `true` to
-   replace generated frames, then restore it to `false`. A `.complete` marker
-   records frame count and frame rate only after extraction succeeds; incomplete
-   folders are rebuilt and old generated JPEGs are removed first, so shorter
-   replacement recordings cannot leave stale trailing frames. The first
-   group's repeat 1 supplies the calibration reference only if it is absent.
-   Ordinary reruns, including frame regeneration, preserve that image. For a new
-   setup, choose new reference/calibration paths or deliberately remove both old
-   files and recalibrate. The ruler projection method is unchanged and its saved
-   result is reused for the entire batch.
-3. **Generate individual data in MATLAB.** Run `Data_Generation/generateData.m`.
-   It reuses extracted frames, tracks the weighted laser centroid, projects onto
-   the ruler, and keeps the original first-position angle zero. It writes
-   `data/{trial}_data.csv` with `time_seconds,angle_degrees`, starting at time zero,
-   plus one `{trial}_metadata.json`. It independently searches startup and shutdown
-   audio intervals for the loudest sample across all channels. These are candidate
-   cues; inspect and correct them when necessary. Missing laser detections or
-   nonfinite angles invalidate the entire trial: affected frame numbers are
-   reported and saved, the old angle CSV is removed, and other trials continue.
-   No missing positions are interpolated. One angular-displacement comparison
-   figure per Reynolds number and direction is saved from valid trials.
-4. **Analyze a selected group in Python.** For example:
+Run these commands from the repository root.
 
-   ```bash
-   python main.py 1000 f
+1. **Configure the batch.** Put recordings in `Data_Generation/trials/` with
+   names such as `1000f1.MTS`. Edit the groups and counts in
+   [`experiment_config.json`](experiment_config.json):
+
+   ```json
+   "trial_groups": ["1000f", "1000r"],
+   "trials_per_group": [2, 3]
    ```
 
-   The original form, `python main.py --re 1000 --direction f`, also works.
-   Both forms accept the same additional options below.
+   This selects `1000f1–2` and `1000r1–3`. Use a single count, such as `3`,
+   to apply it to every group. All groups must share the same camera/ruler setup.
 
-   Every matching configured trial is analyzed separately. On its first run,
-   select the free-decay fit start with the existing slider and choose two torque
-   endpoints around each event. Close the picker or press Enter to accept;
-   incomplete pairs retain valid supplied windows. Invalid suggestions can be
-   replaced in the picker; accepting requires positive-duration, nonoverlapping
-   windows inside the recording. Closing/cancelling without valid windows fails
-   without overwriting the saved integration selections. Fit start and both windows are
-   saved in the same per-trial metadata and reused on subsequent runs. Add
-   `--reselect` to select them again. `--no-show` suppresses final diagnostic
-   displays while still allowing required selection; `--non-interactive` requires
-   a saved fit start and uses saved windows or audio-initialized defaults.
-   Failed trials are reported while valid trials continue. A run with any failure
-   exits with status 1.
+2. **Extract frames and calibrate (MATLAB).** Run extraction, then click the
+   ruler marks to calibrate once for the batch:
+
+   ```matlab
+   run('Data_Generation/save_frames.m')
+   run('Data_Generation/calibration/calibrateRulerAxis.m')
+   ```
+
+   Complete frame extractions and the saved calibration can be reused.
+
+3. **Generate trial data (MATLAB).**
+
+   ```matlab
+   run('Data_Generation/generateData.m')
+   ```
+
+   This saves angle CSVs, audio-event candidates and per-trial metadata.
+   Use `audio.inspect` to review the cues; put corrections in the trial's
+   `manual_event_times_s` metadata fields. Failed trials are reported and skipped.
+
+4. **Analyze a group (Python).**
+
+   ```bash
+   python main.py 1000 r
+   ```
+
+   On the first run, choose the free-decay fit start and two integration
+   endpoints for each event. Selections are saved and reused next time.
+   Results and plots go to `results/1000r/` by default.
+
+| Optional argument | Use |
+| --- | --- |
+| `--reselect` | Pick the fit start and integration windows again |
+| `--no-show` | Save plots without showing final diagnostics; selection remains interactive |
+| `--non-interactive` | Use a saved fit start and valid saved/audio-based windows without prompting |
+| `--config path/to/config.json` | Use a different batch configuration |
+
+The named form `python main.py --re 1000 --direction r` also works.
 
 MATLAB scripts add their own helper directories. Run them by full path or add
 `Data_Generation` and `Data_Generation/calibration` to MATLAB's search path.
@@ -98,6 +87,12 @@ All shared batch settings live in `experiment_config.json`:
 | `audio` | Separate search intervals in **audio seconds**, audio-to-video offset, inspection and playback |
 | `integration_window_offsets_s` | Initial bounds relative to each effective event time in **video seconds** |
 
+To rebuild frames, set `video.regenerate_frames` to `true`, run extraction,
+then restore it to `false`. Incomplete folders are rebuilt automatically, with
+old generated JPEGs removed first. The first group's repeat 1 supplies the
+calibration reference only when it is absent. For a new camera/ruler setup,
+choose new reference/calibration paths or remove both old files and recalibrate.
+
 The existing YCbCr laser thresholds are unchanged and editable under `video.laser_ycbcr_limits`.
 [`Data_Generation/ycbcrMask.m`](Data_Generation/ycbcrMask.m) applies these limits
 when isolating the laser in each frame.
@@ -123,6 +118,11 @@ Each `data/{trial}_metadata.json` contains:
 - `manual_event_times_s`: optional `startup` and `shutdown` corrections in original video seconds.
 - `fit_start_s`: selected free-decay start in original seconds.
 - `integration_windows_s`: selected `startup` and `shutdown` pairs in original seconds.
+
+The picker can repair invalid suggested windows. Accepting requires two
+positive-duration, nonoverlapping windows inside the recording. Incomplete
+pairs retain valid suggestions; closing/cancelling without valid bounds fails
+without overwriting saved windows. Noninteractive runs reject invalid bounds.
 
 Unset selections may be JSON `null` or MATLAB's empty array `[]`. For example,
 edit only the appropriate manual correction field to confirm an audio cue:
