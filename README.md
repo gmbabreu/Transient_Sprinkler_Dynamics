@@ -62,7 +62,10 @@ startup and shutdown, and compare individual trials against theory.
    Every matching configured trial is analyzed separately. On its first run,
    select the free-decay fit start with the existing slider and choose two torque
    endpoints around each event. Close the picker or press Enter to accept;
-   incomplete pairs retain the supplied windows. Fit start and both windows are
+   incomplete pairs retain valid supplied windows. Invalid suggestions can be
+   replaced in the picker; accepting requires positive-duration, nonoverlapping
+   windows inside the recording. Closing/cancelling without valid windows fails
+   without overwriting the saved integration selections. Fit start and both windows are
    saved in the same per-trial metadata and reused on subsequent runs. Add
    `--reselect` to select them again. `--no-show` suppresses final diagnostic
    displays while still allowing required selection; `--non-interactive` requires
@@ -133,12 +136,14 @@ candidate. Ordinary regeneration preserves manual corrections, fit start and
 integration selections. Regenerating frames invalidates the old tracking data
 until generation succeeds again. Missing/invalid metadata and nonfinite input
 angles are rejected by Python, even if a stale CSV exists.
+Both MATLAB generation and Python analysis require effective times satisfying
+`recording_start <= startup < shutdown <= recording_end`; invalid trials are reported and skipped.
 
 Comparison curves use `aligned_time = original_time - effective_startup_time`
 on each trial's own samples. Saved data and integration selections retain original
 timestamps. Changing an integration window never changes audio timing or plot
-alignment. After editing manual times, rerun generation to refresh its angular
-comparison plot; Python comparison plots refresh on the next analysis run.
+alignment. Python analysis refreshes all comparison plots, including angular
+displacement, from successful trials using the latest manual startup corrections.
 Previously saved integration bounds remain unchanged until edited or reselected.
 There is no active motion alignment, noise removal, averaging, shared-grid
 interpolation, or mean-data export. `plotData.m` has been retired.
@@ -149,7 +154,7 @@ The default group folder is `results/{Re}{direction}/`, for example `results/100
 
 | File | Contents |
 | --- | --- |
-| `angular_displacement.png` | MATLAB generation: one line per valid trial, audio-aligned |
+| `angular_displacement.png` | MATLAB generation and Python analysis: one audio-aligned line per successful trial |
 | `{trial}_signal.csv` | Original timestamps and dimensional torque: `time_seconds,torque_dyn_cm` |
 | `{trial}_impulses.csv` | Separate signed startup/shutdown results, predictions and window sensitivity |
 | `impulse_summary.csv` | All successful individual impulse rows with trial identity |
@@ -162,13 +167,13 @@ The torque and cumulative-integral plots shade every trial's startup/shutdown
 windows on the same audio-aligned axis as its curve. Legends identify the trial
 and event; a single-trial plot also includes numerical impulse annotations.
 The per-trial diagnostic figure uses original recording seconds and is saved
-even with `--no-show`. For a single trial with saved selections, this is the
-figure displayed as Figure 5; its filename is independent of figure numbering.
+even with `--no-show`; its filename is independent of figure numbering.
 
 Generation removes the affected groups' previous generated results before
 rebuilding. Analysis replaces its group products and removes stale per-trial
 analysis CSVs, including those belonging to failed or deselected trials. It
-preserves the angular figure produced by generation. Enable `video.masked_video`,
+also replaces the angular figure and removes it if the entire group fails.
+Enable `video.masked_video`,
 `video.overlay_video`, or `video.overlay_frames` to save masked videos, tracking
 overlay videos, or individual overlay JPEGs under the configured data folder.
 Older example data and impulse CSVs in `Data_Generation/data` are not selected as
@@ -222,7 +227,7 @@ and other numerical changes are deferred.
 
 The original test suite and focused batch checks exercise reconstruction/export,
 group selection, saved timing/selections, reselection and invalid-trial exclusion.
-All 33 Python tests passed with both Python 3.12/NumPy 2 and the default
+All 42 Python tests passed with both Python 3.12/NumPy 2 and the default
 Python 3.9/NumPy 1.23.5 environment, including shared group/repeat expansion
 and invalid configuration checks. MATLAB R2026a syntax
 checks and synthetic AVI/JPEG/WAV checks also passed: extraction completion and

@@ -59,7 +59,7 @@ from Main_Functions.plot_funcs import plot_torque, plot_torque_int, plot_phi_gen
 # IMPULSE FUNCS
 from Main_Functions.impulse_funcs import (
     analyze_impulses, report_impulses, save_impulse_summary,
-    mark_impulse_windows, plot_impulse_diagnostics, select_impulse_windows,
+    mark_impulse_windows, plot_impulse_diagnostics, select_impulse_windows, validate_window,
 )
 
 # FOURIER TRANSFORM FUNCS
@@ -186,6 +186,12 @@ def analyze_trial(trial_id, config, *, reselect=False, interactive=True):
     full_t, full_phi = validate_recording(full_t, full_phi)
     startup_time = effective_event_time(metadata, "startup")
     shutdown_time = effective_event_time(metadata, "shutdown")
+    if not full_t[0] <= startup_time < shutdown_time <= full_t[-1]:
+        raise ValueError(
+            f"Invalid effective event times: startup={startup_time} s, "
+            f"shutdown={shutdown_time} s; require "
+            f"{full_t[0]} <= startup < shutdown <= {full_t[-1]} s."
+        )
 
     # Reuse the user's free-decay selection before asking for another slider
     # choice. fit_segments keeps the existing nearest-peak fitting convention.
@@ -315,6 +321,16 @@ def analyze_trial(trial_id, config, *, reselect=False, interactive=True):
             saved = [event_time + offset
                      for offset in config["integration_window_offsets_s"][event]]
         windows.append(saved)
+    # Invalid saved or audio-based suggestions can be repaired interactively.
+    # Validation never clamps integration bounds or writes a replacement here.
+    try:
+        checked = [validate_window(fourier_t_seg, window) for window in windows]
+        if checked[0][1] > checked[1][0]:
+            raise ValueError("Startup and shutdown integration windows must not overlap.")
+    except (TypeError, ValueError) as error:
+        if not interactive:
+            raise ValueError(f"Invalid integration window suggestions: {error}") from error
+        needs_selection = True
     if interactive and needs_selection:
         windows = select_impulse_windows(fourier_t_seg, true_torque, *windows)
 
@@ -346,7 +362,7 @@ def analyze_trial(trial_id, config, *, reselect=False, interactive=True):
 # The per-trial analysis above feeds the following group plotting/export loop.
 
 def plot_group_results(trials, output_dir, group):
-    """Save torque, cumulative-integral and individual impulse comparisons.
+    """Save angle, torque, cumulative-integral and individual impulse comparisons.
 
     Every curve uses its own sample grid shifted by effective startup time.
     CSV timestamps and integration selections are not changed by these plots.
@@ -394,6 +410,18 @@ def plot_group_results(trials, output_dir, group):
     fig.tight_layout()
     fig.savefig(output_dir / "impulse_comparison.png")
 
+    # Refresh this comparison too when a manual startup correction changes.
+    fig, ax = plt.subplots()
+    for trial in trials:
+        ax.plot(trial["time"] - trial["startup_time"], np.rad2deg(trial["phi"]),
+                label=trial["trial_id"])
+    ax.set_xlabel("Time from effective startup (s)")
+    ax.set_ylabel("Angular displacement (degrees)")
+    ax.set_title(f"{group}: angular displacement")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(output_dir / "angular_displacement.png")
+
 
 def run_group(config, reynolds, direction, *, reselect=False, interactive=True, show=True):
     """Process a selected group, export successes, and return (trials, failures).
@@ -409,10 +437,9 @@ def run_group(config, reynolds, direction, *, reselect=False, interactive=True, 
     output_dir = config["paths"]["output"] / group
     output_dir.mkdir(parents=True, exist_ok=True)
     # Replace only this group's analysis products, so failed trials cannot linger.
-    # The angular figure belongs to MATLAB generation and is left in place.
     for pattern in ("*_signal.csv", "*_impulses.csv", "impulse_summary.csv",
                     "torque.png", "cumulative_integral.png", "impulse_comparison.png",
-                    "*_impulse_diagnostics.png"):
+                    "angular_displacement.png", "*_impulse_diagnostics.png"):
         for path in output_dir.glob(pattern):
             path.unlink()
     trials, failures = [], {}

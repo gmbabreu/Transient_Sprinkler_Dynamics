@@ -459,19 +459,27 @@ def select_impulse_windows(
     """Pick two endpoints per event on extracted torque close-ups.
 
     Close the figure, press Enter, or click Done to accept completed pairs.
-    Events with no complete pair retain their supplied sound-based window.
+    Events with no complete pair retain a valid supplied window. Invalid
+    suggestions must be corrected before accepting; closing or cancelling
+    without valid, nonoverlapping windows raises ValueError.
     Escape discards all clicks. view_windows controls only the initial views.
     """
     import matplotlib.pyplot as plt
     from matplotlib.widgets import Button
 
     time_s, torque_dyn_cm = validate_signal(time_s, torque_dyn_cm)
-    defaults = [validate_window(time_s, startup_window),
-                validate_window(time_s, shutdown_window)]
-    if defaults[0][1] > defaults[1][0]:
-        raise ValueError("Startup and shutdown integration windows must not overlap.")
+    defaults = []
+    for window in (startup_window, shutdown_window):
+        try:
+            defaults.append(validate_window(time_s, window))
+        except (TypeError, ValueError):
+            # No clamped fallback: this event requires a manual replacement.
+            defaults.append(None)
+    defaults_valid = (all(window is not None for window in defaults)
+                      and defaults[0][1] <= defaults[1][0])
     if view_windows is None:
-        view_windows = [(a - 2, b + 2) for a, b in defaults]
+        view_windows = [(window[0] - 2, window[1] + 2) if window is not None
+                        else (time_s[0], time_s[-1]) for window in defaults]
     if len(view_windows) != 2:
         raise ValueError("Supply one close-up view for each event.")
 
@@ -479,8 +487,8 @@ def select_impulse_windows(
     fig.subplots_adjust(top=0.76, bottom=0.25, wspace=0.3)
     fig.suptitle(
         "Extracted torque: click two interval endpoints in each panel (either order).\n"
-        "Done / Enter / close: accept; incomplete pairs use sound windows.\n"
-        "Reset / Escape: restore sound windows. Turn off zoom/pan to pick.",
+        "Done / Enter / close: accept valid windows; invalid suggestions need correction.\n"
+        "Reset / Escape: restore suggestions. Turn off zoom/pan to pick.",
         fontsize=10,
     )
     names = ("Startup", "Shutdown")
@@ -491,12 +499,24 @@ def select_impulse_windows(
     markers = [[], []]
     status = fig.text(0.05, 0.14, "", fontsize=9)
 
+    def checked_windows():
+        for name, window in zip(names, chosen):
+            if window is None:
+                raise ValueError(f"{name} integration window is invalid; select two valid endpoints.")
+            validate_window(time_s, window)
+        if chosen[0][1] > chosen[1][0]:
+            raise ValueError("Startup and shutdown integration windows must not overlap.")
+        return tuple(chosen)
+
     for i, (ax, view) in enumerate(zip(axes, view_windows)):
-        # Include the fallback window even when the sound cue changes.
-        context = validate_window(time_s, (
-            max(time_s[0], min(view[0], defaults[i][0])),
-            min(time_s[-1], max(view[1], defaults[i][1])),
-        ))
+        # Only the displayed context may be clipped to the recording. This
+        # never changes a suggested or selected integration bound.
+        if defaults[i] is not None:
+            view = (min(view[0], defaults[i][0]), max(view[1], defaults[i][1]))
+        try:
+            context = validate_window(time_s, (max(time_s[0], view[0]), min(time_s[-1], view[1])))
+        except ValueError:
+            context = (time_s[0], time_s[-1])
         local_time, local_torque = window_samples(time_s, torque_dyn_cm, context)
         ax.plot(local_time, local_torque, color="hotpink")
         ax.set(xlim=context, xlabel="Experimental time (s)",
@@ -507,15 +527,25 @@ def select_impulse_windows(
         for i, ax in enumerate(axes):
             for artist in markers[i]:
                 artist.remove()
-            a, b = chosen[i]
-            markers[i] = [ax.axvspan(a, b, color=colors[i], alpha=0.15),
-                          ax.axvline(a, color=colors[i], linestyle="--"),
-                          ax.axvline(b, color=colors[i], linestyle="--")]
-            source = "clicked" if manual[i] else "sound"
-            ax.set_title(f"{names[i]}: [{a:.3f}, {b:.3f}] s ({source})")
+            markers[i] = []
+            if chosen[i] is None:
+                ax.set_title(f"{names[i]}: select a valid integration window")
+            else:
+                a, b = chosen[i]
+                markers[i] = [ax.axvspan(a, b, color=colors[i], alpha=0.15),
+                              ax.axvline(a, color=colors[i], linestyle="--"),
+                              ax.axvline(b, color=colors[i], linestyle="--")]
+                source = "clicked" if manual[i] else "suggested"
+                ax.set_title(f"{names[i]}: [{a:.3f}, {b:.3f}] s ({source})")
             if pending[i] is not None:
                 markers[i].append(ax.axvline(pending[i], color=colors[i]))
-        status.set_text(message or "Shaded windows will be used. Click Done when ready.")
+        if not message:
+            try:
+                checked_windows()
+                message = "Shaded windows will be used. Click Done when ready."
+            except ValueError as error:
+                message = str(error)
+        status.set_text(message)
         fig.canvas.draw_idle()
 
     def on_click(event):
@@ -529,10 +559,10 @@ def select_impulse_windows(
         if not np.isfinite(endpoint) or not time_s[0] <= endpoint <= time_s[-1]:
             return
         if pending[i] is None:
-            # An incomplete replacement falls back to this event's sound window.
+            # Keep the existing fallback behavior when suggestions are valid.
             trial = list(chosen)
             trial[i] = defaults[i]
-            if trial[0][1] > trial[1][0]:
+            if defaults_valid and trial[0][1] > trial[1][0]:
                 redraw("Reset first: the sound fallback would overlap the other clicked window.")
                 return
             chosen[i], manual[i], pending[i] = defaults[i], False, endpoint
@@ -543,7 +573,10 @@ def select_impulse_windows(
         trial[i] = candidate
         try:
             validate_window(time_s, candidate)
-            if trial[0][1] > trial[1][0]:
+            # An invalid initial suggestion must not block repair of the other
+            # event. Enforce overlap against accepted clicks or valid defaults.
+            if (all(window is not None for window in trial)
+                    and (defaults_valid or manual[1-i]) and trial[0][1] > trial[1][0]):
                 raise ValueError("Startup must end before shutdown begins.")
         except ValueError as error:
             redraw(f"{error} Click a different second endpoint, or Reset.")
@@ -555,9 +588,14 @@ def select_impulse_windows(
         chosen[:] = defaults
         pending[:] = [None, None]
         manual[:] = [False, False]
-        redraw("Sound windows restored. Click two endpoints per event, or Done.")
+        redraw()
 
     def done(event=None):
+        try:
+            checked_windows()
+        except ValueError as error:
+            redraw(str(error))
+            return
         plt.close(fig)
 
     def on_key(event):
@@ -565,7 +603,7 @@ def select_impulse_windows(
             done()
         elif event.key == "escape":
             reset()
-            done()
+            plt.close(fig)
 
     reset_button = Button(fig.add_axes([0.61, 0.04, 0.16, 0.06]), "Reset to sound")
     done_button = Button(fig.add_axes([0.79, 0.04, 0.16, 0.06]), "Done")
@@ -580,7 +618,9 @@ def select_impulse_windows(
         for connection in connections:
             fig.canvas.mpl_disconnect(connection)
         plt.close(fig)
-    return tuple(chosen)
+    # Closing/cancelling invalid suggestions fails rather than returning
+    # clamped or overlapping bounds that main.py could save as selections.
+    return checked_windows()
 
 
 def plot_impulse_diagnostics(time_s, torque_dyn_cm, results):

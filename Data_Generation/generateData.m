@@ -192,7 +192,10 @@ for trialIndex = 1:numel(config.trials)
         % corrections. Only the effective startup time shifts comparison plots.
         metadata.audio_candidates_s = estimateSoundTimes(mov_name, config.audio, [t, theta_all]);
         startup = effectiveTime(metadata, 'startup');
-        effectiveTime(metadata, 'shutdown'); % Validate both events before accepting the trial.
+        shutdown = effectiveTime(metadata, 'shutdown');
+        assert(t(1) <= startup && startup < shutdown && shutdown <= t(end), ...
+            'Invalid effective event times: startup=%.17g s, shutdown=%.17g s; require %.17g <= startup < shutdown <= %.17g s.', ...
+            startup, shutdown, t(1), t(end));
         % Write theta data to a CSV file, keeping the original column format.
         dataFinal = [t, theta_all];
         outputTable = array2table(dataFinal, ...

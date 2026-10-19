@@ -149,6 +149,70 @@ class BatchWorkflowTests(unittest.TestCase):
              patch.object(main, 'select_impulse_windows', side_effect=AssertionError('windows not reused')):
             self.analyze()
 
+    def test_event_times_must_be_ordered_within_recording(self):
+        for source in ('audio_candidates_s', 'manual_event_times_s'):
+            for startup, shutdown in ((-1., 18.), (18., 18.), (19., 18.),
+                                      (8., self.time[-1] + 1), (8., -1.)):
+                with self.subTest(source=source, startup=startup, shutdown=shutdown):
+                    metadata = json.loads(json.dumps(self.metadata))
+                    metadata['manual_event_times_s'] = dict(startup=None, shutdown=None)
+                    metadata[source] = dict(startup=startup, shutdown=shutdown)
+                    self.write_trial('1000r1', metadata)
+                    path = self.root / '1000r1_metadata.json'
+                    before = path.read_text()
+                    with self.assertRaisesRegex(ValueError, 'Invalid effective event times') as caught:
+                        self.analyze()
+                    self.assertIn(f'startup={startup:g}', str(caught.exception))
+                    self.assertIn(f'shutdown={shutdown:g}', str(caught.exception))
+                    self.assertEqual(path.read_text(), before)
+
+    def test_event_times_at_recording_endpoints_are_valid(self):
+        self.metadata['manual_event_times_s'] = dict(startup=self.time[0], shutdown=self.time[-1])
+        self.write_trial('1000r1', self.metadata)
+        self.assertEqual(self.analyze(interactive=False)['startup_time'], self.time[0])
+
+    def test_invalid_windows_are_not_saved_without_valid_manual_selection(self):
+        windows = dict(startup=[-1., 1.], shutdown=[29., 35.])
+        self.metadata['integration_windows_s'] = windows
+        self.write_trial('1000r1', self.metadata)
+        for interactive in (False, True):
+            with self.subTest(interactive=interactive), \
+                 patch.object(plt, 'show', return_value=None), \
+                 patch.object(main, 'select_impulse_windows', wraps=main.select_impulse_windows) as picker:
+                with self.assertRaisesRegex(ValueError, 'integration window'):
+                    self.analyze(interactive=interactive)
+                self.assertEqual(picker.called, interactive)
+                self.assertEqual(self.read_metadata()['integration_windows_s'], windows)
+
+    def test_invalid_saved_windows_prompt_for_repair(self):
+        self.metadata['integration_windows_s'] = dict(startup=[9., 23.], shutdown=[19., 22.])
+        self.write_trial('1000r1', self.metadata)
+        with patch.object(main, 'select_impulse_windows', return_value=([10., 11.], [20., 21.])) as picker:
+            self.analyze()
+        picker.assert_called_once()
+        self.assertEqual(self.read_metadata()['integration_windows_s'],
+                         dict(startup=[10., 11.], shutdown=[20., 21.]))
+
+    def test_angular_plot_refreshes_after_manual_timing_correction(self):
+        first = self.analyze(interactive=False)
+        metadata = self.read_metadata()
+        metadata['manual_event_times_s']['startup'] = 7.5
+        self.write_trial('1000r1', metadata)
+        second = self.analyze(interactive=False)
+        for trial in (first, second):
+            with patch.object(plt.Figure, 'savefig', autospec=True) as save:
+                main.plot_group_results([trial], self.root, '1000r')
+            fig = next(call.args[0] for call in save.call_args_list
+                       if Path(call.args[1]).name == 'angular_displacement.png')
+            self.assertEqual(len(fig.axes[0].lines), 1)
+            curve = fig.axes[0].lines[0]
+            np.testing.assert_array_equal(curve.get_xdata(), self.time - trial['startup_time'])
+            np.testing.assert_array_equal(curve.get_ydata(), np.rad2deg(trial['phi']))
+            self.assertEqual(curve.get_label(), '1000r1')
+            plt.close('all')
+        np.testing.assert_array_equal(first['torque'], second['torque'])
+        self.assertEqual(first['impulses'], second['impulses'])
+
     def test_reselect_changes_windows_without_changing_event_times(self):
         with patch.object(main, 'plot_data', return_value=12.), \
              patch.object(main, 'select_impulse_windows', return_value=([9.5, 11.5], [19.5, 21.5])):
@@ -163,24 +227,28 @@ class BatchWorkflowTests(unittest.TestCase):
     def test_invalid_trials_are_reported_excluded_and_stale_outputs_removed(self):
         # Cover an explicit generation failure, a stale CSV with a NaN angle,
         # and missing inputs before the valid trial to verify continuation.
-        self.config['trials'] = ['1000r2', '1000r3', '1000r4', '1000r1']
+        self.config['trials'] = ['1000r2', '1000r3', '1000r4', '1000r5', '1000r1']
         invalid = dict(self.metadata, valid=False, invalid_frames=[1, 7], failure_reason='Missing laser')
         self.write_trial('1000r2', invalid)
         bad_angle = self.angle.copy()
         bad_angle[6] = np.nan
         self.write_trial('1000r3', self.metadata, bad_angle)
+        invalid_events = dict(self.metadata, manual_event_times_s=dict(startup=20., shutdown=10.))
+        self.write_trial('1000r5', invalid_events)
         # r4 deliberately has no metadata or data.
         output = self.root / 'results/1000r'
         output.mkdir(parents=True)
         stale = ['1000r2_signal.csv', '1000r2_impulses.csv', '1000r3_signal.csv',
                  '1000r2_impulse_diagnostics.png',
-                 'impulse_summary.csv', 'torque.png', 'cumulative_integral.png', 'impulse_comparison.png']
+                 'impulse_summary.csv', 'torque.png', 'cumulative_integral.png', 'impulse_comparison.png',
+                 'angular_displacement.png']
         for name in stale:
             (output / name).write_text('stale')
         with contextlib.redirect_stdout(io.StringIO()):
             trials, failures = main.run_group(self.config, 1000, 'r', interactive=False, show=False)
         self.assertEqual([trial['trial_id'] for trial in trials], ['1000r1'])
-        self.assertEqual(set(failures), {'1000r2', '1000r3', '1000r4'})
+        self.assertEqual(set(failures), {'1000r2', '1000r3', '1000r4', '1000r5'})
+        self.assertIn('Invalid effective event times', failures['1000r5'])
         self.assertIn('[1, 7]', failures['1000r2'])
         self.assertIn('frames [7]', failures['1000r3'])
         self.assertFalse((output / '1000r2_signal.csv').exists())
@@ -193,14 +261,14 @@ class BatchWorkflowTests(unittest.TestCase):
         self.assertEqual({row['run_identity'] for row in rows}, {'1000r1'})
         self.assertEqual({row['event'] for row in rows}, {'startup', 'shutdown'})
         for name in ('torque.png', 'cumulative_integral.png', 'impulse_comparison.png',
-                     '1000r1_impulse_diagnostics.png'):
+                     '1000r1_impulse_diagnostics.png', 'angular_displacement.png'):
             self.assertGreater((output / name).stat().st_size, 100)
         # A subsequent all-failed run must not leave the earlier valid products.
         self.write_trial('1000r1', invalid)
         with contextlib.redirect_stdout(io.StringIO()):
             trials, failures = main.run_group(self.config, 1000, 'r', interactive=False, show=False)
         self.assertFalse(trials)
-        self.assertEqual(len(failures), 4)
+        self.assertEqual(len(failures), 5)
         self.assertEqual(list(output.iterdir()), [])
 
 
