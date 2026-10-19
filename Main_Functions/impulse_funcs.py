@@ -415,7 +415,7 @@ def save_impulse_summary(path, run_identity, results):
         writer.writerows(records)
 
 
-def mark_impulse_windows(ax, results, annotate=True, *, time_offset_s=0.0, trial_id=None):
+def mark_impulse_windows(ax, results, *, time_offset_s=0.0, trial_id=None):
     """
     Mark selected integration windows on an existing axis.
 
@@ -434,21 +434,6 @@ def mark_impulse_windows(ax, results, annotate=True, *, time_offset_s=0.0, trial
             alpha=0.15,
             label=f"{event_label} integration window",
         )
-
-        if annotate:
-            label = f"{event_label} J = {row['J_measured_dyn_cm_s']:.4g} dyn*cm*s"
-            if row["J_theory_dyn_cm_s"] is not None:
-                label += f"\ntheory = {row['J_theory_dyn_cm_s']:.4g}"
-
-            ax.text(
-                0.02 if row["event"] == "startup" else 0.52,
-                0.98,
-                label,
-                transform=ax.transAxes,
-                va="top",
-                fontsize=8,
-                bbox=dict(facecolor="white", alpha=0.8, edgecolor=color),
-            )
 
     ax.legend(fontsize=7, loc="lower right")
 

@@ -290,7 +290,7 @@ def plot_group_results(trials, output_dir, group):
                     ax=ax, label=trial["trial_id"])
             # Apply the same display-only time shift to the selected intervals.
             # Retain shaded windows and legend labels without numerical boxes.
-            mark_impulse_windows(ax, trial["impulses"], annotate=False,
+            mark_impulse_windows(ax, trial["impulses"],
                                  time_offset_s=trial["startup_time"], trial_id=trial["trial_id"])
         ax.set_xlabel("Time from effective startup (s)")
         ax.set_title(f"{group}: {field}")
