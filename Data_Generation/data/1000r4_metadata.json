@@ -1,0 +1,18 @@
+{
+  "manual_event_times_s": {
+    "startup": [],
+    "shutdown": []
+  },
+  "fit_start_s": [],
+  "integration_windows_s": {
+    "startup": [],
+    "shutdown": []
+  },
+  "valid": true,
+  "invalid_frames": [],
+  "failure_reason": "",
+  "audio_candidates_s": {
+    "startup": 12.6338125,
+    "shutdown": 20.4884375
+  }
+}

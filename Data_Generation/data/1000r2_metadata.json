@@ -3,12 +3,16 @@
     "startup": [],
     "shutdown": []
   },
-  "fit_start_s": [],
+  "fit_start_s": 20.5997892795139,
   "integration_windows_s": {
     "startup": [],
     "shutdown": []
   },
-  "valid": false,
+  "valid": true,
   "invalid_frames": [],
-  "failure_reason": "Generation incomplete"
+  "failure_reason": "",
+  "audio_candidates_s": {
+    "startup": 12.083375,
+    "shutdown": 20.23025
+  }
 }

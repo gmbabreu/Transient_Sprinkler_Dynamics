@@ -30,8 +30,12 @@ Run these commands from the repository root.
 
 2. **Extract frames and calibrate (MATLAB).** Run extraction, then click each
    ruler mark requested at the top of the calibration window. Points stay
-   labeled and can be dragged to correct them; click **Accept points** after
-   reviewing all seven marks. Close the window to cancel without saving.
+   labeled and can be dragged to correct them. After placing all marks, click a
+   point to select it (cyan): arrow keys move it 1 pixel; Shift+arrow moves it
+   10 pixels. Click **Accept points** after review, or close the window to
+   cancel without saving calibration parameters.
+   Each calibration refreshes the reference image from `001.jpg` of the first
+   configured trial, including when a reference image already exists.
 
    ```matlab
    run('Data_Generation/save_frames.m')
@@ -96,9 +100,9 @@ All shared batch settings live in `experiment_config.json`:
 
 To rebuild frames, set `video.regenerate_frames` to `true`, run extraction,
 then restore it to `false`. Incomplete folders are rebuilt automatically, with
-old generated JPEGs removed first. The first group's repeat 1 supplies the
-calibration reference only when it is absent. For a new camera/ruler setup,
-choose new reference/calibration paths or remove both old files and recalibrate.
+old generated JPEGs removed first. Extraction creates a missing calibration
+reference from the first group's repeat 1; starting calibration refreshes it
+from that trial's current first frame. Recalibrate for a new camera/ruler setup.
 
 The existing YCbCr laser thresholds are unchanged and editable under `video.laser_ycbcr_limits`.
 [`Data_Generation/ycbcrMask.m`](Data_Generation/ycbcrMask.m) applies these limits
