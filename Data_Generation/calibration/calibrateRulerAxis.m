@@ -2,8 +2,8 @@ clc
 close all
 clear
 
-% Read shared batch paths; the ruler clicks, fitted axis and spline method
-% below remain unchanged. The same saved result is reused for all batch trials.
+% Read shared batch paths; the fitted axis and spline method below remain
+% unchanged. The same saved result is reused for all batch trials.
 calibrationDir = fileparts(mfilename('fullpath'));
 addpath(fileparts(calibrationDir));
 config = loadBatchConfig();
@@ -18,13 +18,44 @@ imageData = imread(config.paths.calibration_reference);
 
 %% COLLECT CLICKS
 
-figure
-imshow(imageData)
-title("Click ruler marks in order")
+calibrationFigure = figure('Name','Ruler calibration','NumberTitle','off');
+calibrationAxes = axes('Parent',calibrationFigure);
+imshow(imageData,'Parent',calibrationAxes)
+% Leave room for the instructions above and the confirmation button below.
+set(calibrationAxes,'Position',[0.05 0.14 0.9 0.70]);
+pointHandles = cell(numPoints,1);
+for pointIndex = 1:numPoints
+    title(calibrationAxes, {
+        sprintf('Click the %g-inch ruler mark (%d of %d)', ...
+                rulerValues(pointIndex),pointIndex,numPoints), ...
+        'Each point stays labeled; drag markers to correct their positions.'});
+    % Image Processing Toolbox point ROIs keep previous clicks visible and
+    % editable. Labels identify the physical reading, not the click number.
+    pointHandles{pointIndex} = drawpoint(calibrationAxes, ...
+        'Color','yellow','Label',sprintf('%g in',rulerValues(pointIndex)), ...
+        'Deletable',false);
+    if ~isgraphics(calibrationFigure) || isempty(pointHandles{pointIndex}) ...
+            || ~isvalid(pointHandles{pointIndex})
+        error('Calibration cancelled; the saved calibration was not changed.');
+    end
+end
 
-[x,y] = ginput(numPoints);
-
-clickedPoints = [x y];
+% Read positions only after review, so dragging any marker updates the fit.
+title(calibrationAxes, {'Review the ruler marks: drag any point to correct it.', ...
+    'Click Accept points when ready. Close the window to cancel.'});
+uicontrol(calibrationFigure,'Style','pushbutton','String','Accept points', ...
+    'Units','normalized','Position',[0.39 0.03 0.22 0.06], ...
+    'Callback',@(~,~) uiresume(calibrationFigure));
+uiwait(calibrationFigure);
+if ~isgraphics(calibrationFigure)
+    error('Calibration cancelled; the saved calibration was not changed.');
+end
+clickedPoints = zeros(numPoints,2);
+for pointIndex = 1:numPoints
+    clickedPoints(pointIndex,:) = pointHandles{pointIndex}.Position;
+end
+x = clickedPoints(:,1);
+y = clickedPoints(:,2);
 
 %% FIT RULER
 

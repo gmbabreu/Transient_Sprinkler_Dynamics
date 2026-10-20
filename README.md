@@ -23,8 +23,15 @@ Run these commands from the repository root.
    This selects `1000f1–2` and `1000r1–3`. Use a single count, such as `3`,
    to apply it to every group. All groups must share the same camera/ruler setup.
 
-2. **Extract frames and calibrate (MATLAB).** Run extraction, then click the
-   ruler marks to calibrate once for the batch:
+   Videos can stay on an external drive: set `paths.trials` to its absolute
+   folder path, such as `/run/media/ga2740/CAM_SD/PRIVATE/AVCHD/BDMV/STREAM`.
+   The leading `/` matters; paths without it are relative to the JSON's folder.
+   Video filenames must still match the trial IDs, such as `1000r2.MTS`.
+
+2. **Extract frames and calibrate (MATLAB).** Run extraction, then click each
+   ruler mark requested at the top of the calibration window. Points stay
+   labeled and can be dragged to correct them; click **Accept points** after
+   reviewing all seven marks. Close the window to cancel without saving.
 
    ```matlab
    run('Data_Generation/save_frames.m')

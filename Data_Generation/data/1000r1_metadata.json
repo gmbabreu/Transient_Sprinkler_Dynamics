@@ -1,14 +1,14 @@
 {
-  "valid": true,
-  "failure_reason": "",
-  "invalid_frames": [],
+  "valid": false,
+  "failure_reason": "Missing laser/nonfinite angles at frames 1092",
+  "invalid_frames": 1092,
   "audio_candidates_s": {
     "startup": 10.149896,
     "shutdown": 20.149896
   },
   "manual_event_times_s": {
-    "startup": null,
-    "shutdown": null
+    "startup": [],
+    "shutdown": []
   },
   "fit_start_s": 21.655922482638875,
   "integration_windows_s": {
@@ -18,7 +18,7 @@
     ],
     "shutdown": [
       21.155174592375364,
-      21.91059981231671
+      21.910599812316711
     ]
   },
   "notes": "Temporary metadata for testing Python with the existing angle CSV. Times and selections reproduce the earlier numerical comparison; audio event times are placeholders, not verified detections. MATLAB generation has not validated this trial."

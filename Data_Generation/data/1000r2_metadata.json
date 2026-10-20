@@ -1,0 +1,14 @@
+{
+  "manual_event_times_s": {
+    "startup": [],
+    "shutdown": []
+  },
+  "fit_start_s": [],
+  "integration_windows_s": {
+    "startup": [],
+    "shutdown": []
+  },
+  "valid": false,
+  "invalid_frames": [],
+  "failure_reason": "Generation incomplete"
+}

@@ -1,14 +1,14 @@
 {
   "paths": {
-    "trials": "Data_Generation/trials",
+    "trials": "/run/media/ga2740/CAM_SD/PRIVATE/AVCHD/BDMV/STREAM",
     "frames": "Data_Generation/frames",
     "data": "Data_Generation/data",
     "output": "results",
     "calibration_reference": "Data_Generation/calibration/frame.jpg",
     "ruler_calibration": "Data_Generation/calibration/frame_rulerCalibration.mat"
   },
-  "trial_groups": ["1000f", "1000r", "500f", "500r"],
-  "trials_per_group": 1,
+  "trial_groups": ["1000r", "1500r"],
+  "trials_per_group": [4,3],
   "video": {
     "extension": ".MTS",
     "mirror_distance_inches": 48,
