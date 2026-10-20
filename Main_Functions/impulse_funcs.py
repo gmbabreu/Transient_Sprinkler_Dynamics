@@ -342,15 +342,42 @@ def analyze_impulses(
     return results
 
 
+def relative_error_metrics(results):
+    """Return the existing reported percentages for plots, tables and reports.
+
+    Event error = 100*abs(J_measured-J_theory)/abs(J_theory).
+    Magnitude mismatch = 100*abs(abs(J_start)-abs(J_stop))/max(abs(J_start),abs(J_stop)).
+    Undefined denominators or missing theory return None, rather than zero.
+    """
+    metrics = {}
+    events = {row["event"]: row for row in results}
+    for event in ("startup", "shutdown"):
+        row = events.get(event)
+        theory = None if row is None else row["J_theory_dyn_cm_s"]
+        metrics[f"{event}_relative_error_pct"] = (
+            None if theory is None or theory == 0 else
+            100 * (abs(row["residual_dyn_cm_s"]) / abs(theory)))
+    metrics["relative_magnitude_mismatch_pct"] = None
+    if "startup" in events and "shutdown" in events:
+        j_start = events["startup"]["J_measured_dyn_cm_s"]
+        j_stop = events["shutdown"]["J_measured_dyn_cm_s"]
+        larger = max(abs(j_start), abs(j_stop))
+        if larger > 0:
+            metrics["relative_magnitude_mismatch_pct"] = (
+                100 * (abs(abs(j_start) - abs(j_stop)) / larger))
+    return metrics
+
+
 def report_impulses(results):
     """
     Print a concise experimental-versus-theory comparison.
     """
-    print("\nRAW TRANSIENT IMPULSE COMPARISON")
+    print("\nRAW TRANSIENT CUMULATIVE TORQUE COMPARISON")
     print("Units: dyn*cm*s = g*cm^2/s")
-    print("Measured impulse = integral of reconstructed torque over the selected window.")
+    print("Measured cumulative torque = integral of reconstructed torque over the selected window.")
     print("No baseline or steady-flow correction is applied.")
 
+    metrics = relative_error_metrics(results)
     for row in results:
         print(
             f"\n{row['event'].upper()} "
@@ -364,12 +391,12 @@ def report_impulses(results):
             theory = row["J_theory_dyn_cm_s"]
             print(f"  theory J   = {theory:.6g}")
             if theory == 0:
-                print("  relative error = undefined (zero theoretical impulse)")
+                print("  relative error = undefined (zero theoretical cumulative torque)")
             else:
                 # Compare signed impulses against the theoretical magnitude,
                 # so an opposite-sign measurement still counts as disagreement.
-                relative_error = abs(row["residual_dyn_cm_s"]) / abs(theory)
-                print(f"  relative error = {100 * relative_error:.2f}%")
+                relative_error = metrics[f"{row['event']}_relative_error_pct"]
+                print(f"  relative error = {relative_error:.2f}%")
 
         contracted = row["sensitivity_contracted_dyn_cm_s"]
         expanded = row["sensitivity_expanded_dyn_cm_s"]
@@ -391,10 +418,10 @@ def report_impulses(results):
 
         larger = max(abs(j_start), abs(j_stop))
         if larger > 0:
-            relative_magnitude_mismatch = abs(abs(j_start) - abs(j_stop)) / larger
+            relative_magnitude_mismatch = metrics["relative_magnitude_mismatch_pct"]
             print(
                 "  relative magnitude mismatch = "
-                f"{100 * relative_magnitude_mismatch:.3g}%"
+                f"{relative_magnitude_mismatch:.3g}%"
             )
 
 
@@ -463,8 +490,12 @@ def select_impulse_windows(
     defaults_valid = (all(window is not None for window in defaults)
                       and defaults[0][1] <= defaults[1][0])
     if view_windows is None:
-        view_windows = [(window[0] - 2, window[1] + 2) if window is not None
-                        else (time_s[0], time_s[-1]) for window in defaults]
+        # Include startup from 9.5 s and shutdown from 19.5 s, or earlier
+        # when the 3 s lead-in requires it. Keep 2 s after each suggestion.
+        # These are display limits only; integration bounds stay unchanged.
+        view_windows = [(min(window[0] - 3, start), window[1] + 2)
+                        if window is not None else (time_s[0], time_s[-1])
+                        for window, start in zip(defaults, (9.5, 19.5))]
     if len(view_windows) != 2:
         raise ValueError("Supply one close-up view for each event.")
 
@@ -548,7 +579,7 @@ def select_impulse_windows(
             trial = list(chosen)
             trial[i] = defaults[i]
             if defaults_valid and trial[0][1] > trial[1][0]:
-                redraw("Reset first: the sound fallback would overlap the other clicked window.")
+                redraw("Reset first: the initial window would overlap the other clicked window.")
                 return
             chosen[i], manual[i], pending[i] = defaults[i], False, endpoint
             redraw(f"{names[i]}: first endpoint {endpoint:.3f} s; click the other endpoint.")
@@ -590,7 +621,7 @@ def select_impulse_windows(
             reset()
             plt.close(fig)
 
-    reset_button = Button(fig.add_axes([0.61, 0.04, 0.16, 0.06]), "Reset to sound")
+    reset_button = Button(fig.add_axes([0.61, 0.04, 0.16, 0.06]), "Reset selections")
     done_button = Button(fig.add_axes([0.79, 0.04, 0.16, 0.06]), "Done")
     reset_button.on_clicked(reset)
     done_button.on_clicked(done)
@@ -675,7 +706,7 @@ def plot_impulse_diagnostics(time_s, torque_dyn_cm, results):
         axes[1, col].set(
             xlim=(start_s, end_s),
             xlabel="Experimental time (s)",
-            ylabel="Cumulative impulse (dyn*cm*s)",
+            ylabel="Cumulative torque (dyn*cm*s)",
         )
         axes[1, col].legend(fontsize=8)
 

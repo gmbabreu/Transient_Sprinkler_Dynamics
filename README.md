@@ -4,7 +4,7 @@ Work by Rachel Bertaud, Gabriel Abreu, and Kelly Yu.
 
 Reconstruct torque from each trial's angular displacement by fitting its free-decay
 tail, applying the existing Fourier solver and torque filter, and checking a
-forward ODE reconstruction. Measure two separate signed impulses around pump
+forward ODE reconstruction. Measure two separate signed cumulative torque values around pump
 startup and shutdown, and compare individual trials against theory.
 
 ## Four-step workflow
@@ -66,7 +66,7 @@ Run these commands from the repository root.
 
 | Optional argument | Use |
 | --- | --- |
-| `--reselect` | Pick the fit start and integration windows again |
+| `--reselect` | Reopen the fit start and integration windows at the latest saved selections |
 | `--no-show` | Save plots without showing final diagnostics; selection remains interactive |
 | `--non-interactive` | Use a saved fit start and valid saved/audio-based windows without prompting |
 | `--config path/to/config.json` | Use a different batch configuration |
@@ -167,16 +167,17 @@ The default group folder is `results/{Re}{direction}/`, for example `results/100
 | --- | --- |
 | `angular_displacement.png` | MATLAB generation and Python analysis: one audio-aligned line per successful trial |
 | `{trial}_signal.csv` | Original timestamps and dimensional torque: `time_seconds,torque_dyn_cm` |
-| `{trial}_impulses.csv` | Separate signed startup/shutdown results, predictions and window sensitivity |
-| `impulse_summary.csv` | All successful individual impulse rows with trial identity |
+| `{trial}_jumps.csv` | Separate signed startup/shutdown results, predictions and window sensitivity |
+| `jump_summary.csv` | All successful individual event rows with trial identity |
 | `torque.png` | Overlaid reconstructed torque with each trial's selected integration windows |
 | `cumulative_integral.png` | Overlaid raw cumulative torque integrals with each trial's selected integration windows |
-| `impulse_comparison.png` | Each trial's startup/shutdown impulses against theory; lines show window sensitivity |
-| `{trial}_impulse_diagnostics.png` | Per-trial startup/shutdown torque close-ups and local cumulative impulses against theory, saved at 300 dpi |
+| `cumulative_jump_comparison.png` | Main cumulative jump comparison: startup/shutdown cumulative torque against theory and their sum relative to zero; point labels show relative errors and magnitude mismatch; thin ranges show window sensitivity |
+| `relative_errors.csv` | The same three percentages at full precision; undefined values are blank |
+| `{trial}_jump_diagnostics.png` | Per-trial startup/shutdown torque close-ups and local cumulative torque against theory, saved at 300 dpi |
 
 The torque and cumulative-integral plots shade every trial's startup/shutdown
 windows on the same audio-aligned axis as its curve. Legends identify the trial
-and event; a single-trial plot also includes numerical impulse annotations.
+and event.
 The per-trial diagnostic figure uses original recording seconds and is saved
 even with `--no-show`; its filename is independent of figure numbering.
 
@@ -187,7 +188,7 @@ also replaces the angular figure and removes it if the entire group fails.
 Enable `video.masked_video`,
 `video.overlay_video`, or `video.overlay_frames` to save masked videos, tracking
 overlay videos, or individual overlay JPEGs under the configured data folder.
-Older example data and impulse CSVs in `Data_Generation/data` are not selected as
+Older example data and jump CSVs in `Data_Generation/data` are not selected as
 results; Python requires the configured trial's valid metadata from generation.
 
 ## Numerical conventions
@@ -209,18 +210,18 @@ full recording. Exports contain every original sample, without padding.
 `impulse_funcs.py` integrates the raw signed torque separately around startup and
 shutdown with exact, linearly interpolated integration endpoints, preserving its
 existing units (**dyn·cm·s = g·cm²/s**), signs and sensitivity calculations. There
-is no baseline subtraction and no jump-to-jump impulse. Window sensitivity varies
+is no baseline subtraction and no integral between events. Window sensitivity varies
 both ends by 0.25 s where valid, including the original window in the reported
 range; it is not a statistical confidence interval.
 The terminal reports `[contracted, expanded]` in that order, rather than sorting
-those two impulse values. Invalid variants appear as `unavailable`. CSVs include
+those two cumulative torque values. Invalid variants appear as `unavailable`. CSVs include
 the corresponding `sensitivity_contracted_dyn_cm_s` and
 `sensitivity_expanded_dyn_cm_s` fields. The numerical minimum/maximum across
 valid variants and the original window remain available for plotting the range.
 
-The terminal compares each measured impulse with theory using
+The terminal compares each measured cumulative torque with theory using
 `relative error = 100 * abs(measured - theory) / abs(theory)` percent, displayed
-to two decimal places. A zero theoretical impulse gives an undefined percentage.
+to two decimal places. A zero theoretical cumulative torque gives an undefined percentage.
 Residuals and measured/theory ratios remain available in the CSV exports.
 
 The current flow setting preserves the existing relation `Q = Re * 0.0094` cm³/s,
@@ -247,8 +248,8 @@ and offsets, metadata preservation, missing-detection exclusion and continuation
 For the existing `1000r1_data.csv`, the pre-refactor and refactored calculations
 were compared with motion preprocessing disabled, fit start 25 s and fixed windows
 `[11.149896, 12.149896]` and `[21.149896, 22.149896]`. Fitted constants, every torque
-sample, forward reconstruction and both signed impulses were identical. The
-impulses were -247.57673961727286 and 276.5888171556742 dyn·cm·s. These fixed windows
+sample, forward reconstruction and both signed cumulative torque values were identical. The
+cumulative torque values were -247.57673961727286 and 276.5888171556742 dyn·cm·s. These fixed windows
 are a numerical regression check, not confirmation of the audio event times.
 
 Actual MTS recordings and a saved ruler calibration are absent from this checkout,

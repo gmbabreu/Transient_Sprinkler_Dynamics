@@ -104,5 +104,5 @@ def plot_torque_int(new_t, cummInt, *, ax=None, label=None):
     ax.plot(new_t, cummInt, label=label, **({'color': 'hotpink'} if label is None else {}))
     plt.sca(ax)
     plt.xlabel('time, seconds')
-    plt.ylabel('Integral of Torque (dyn·cm·s)')
-    plt.title('Cummulative Integral of Torque Signal')
+    plt.ylabel('Cumulative torque (dyn·cm·s)')
+    plt.title('Cumulative torque')

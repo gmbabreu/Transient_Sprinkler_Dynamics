@@ -1,10 +1,9 @@
 # Raw recordings (case-insensitive extension).
 *.[mM][tT][sS]
 
-# Local Python caches and generated batch results.
+# Local Python caches.
 __pycache__/
 *.pyc
-/results/
 /Data_Generation/frames/**/.complete
 
 # Generated data-processing artifacts.

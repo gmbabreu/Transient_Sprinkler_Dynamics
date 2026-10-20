@@ -10,12 +10,27 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 from Main_Functions.impulse_funcs import (
-    analyze_impulses, integrate_impulse, report_impulses,
+    analyze_impulses, integrate_impulse, report_impulses, relative_error_metrics,
     save_impulse_summary, mark_impulse_windows, plot_impulse_diagnostics,
 )
 
 
 class ImpulseTests(unittest.TestCase):
+    def test_relative_error_metrics_preserve_sign_and_handle_undefined_values(self):
+        rows = [dict(event='startup', J_measured_dyn_cm_s=-80.,
+                     J_theory_dyn_cm_s=-100., residual_dyn_cm_s=20.),
+                dict(event='shutdown', J_measured_dyn_cm_s=120.,
+                     J_theory_dyn_cm_s=100., residual_dyn_cm_s=20.)]
+        metrics = relative_error_metrics(rows)
+        self.assertEqual(metrics['startup_relative_error_pct'], 20.)
+        self.assertEqual(metrics['shutdown_relative_error_pct'], 20.)
+        self.assertAlmostEqual(metrics['relative_magnitude_mismatch_pct'], 100/3)
+        rows[0].update(J_measured_dyn_cm_s=80., residual_dyn_cm_s=180.)
+        self.assertEqual(relative_error_metrics(rows)['startup_relative_error_pct'], 180.)
+        rows[0].update(J_theory_dyn_cm_s=None, J_measured_dyn_cm_s=0.)
+        rows[1].update(J_theory_dyn_cm_s=0., J_measured_dyn_cm_s=0.)
+        self.assertTrue(all(value is None for value in relative_error_metrics(rows).values()))
+
     def setUp(self):
         self.t = np.arange(0., 30.01, .125)
         # Triangular pulses with signed areas +6 and -6 on a constant background.
@@ -103,7 +118,7 @@ class ImpulseTests(unittest.TestCase):
             (-80., -100., '20.00%'),
             (100., -100., '200.00%'),
             (-100., -100., '0.00%'),
-            (-120., 0., 'undefined (zero theoretical impulse)'),
+            (-120., 0., 'undefined (zero theoretical cumulative torque)'),
         ):
             with self.subTest(measured=measured, theory=theory):
                 row = dict(base_row, J_measured_dyn_cm_s=measured,

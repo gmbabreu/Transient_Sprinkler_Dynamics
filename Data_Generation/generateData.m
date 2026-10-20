@@ -34,7 +34,9 @@ for group = unique(groups(:))'
         mkdir(outputDir);
     end
     patterns = {'*_signal.csv', '*_impulses.csv', '*_impulse_diagnostics.png', 'impulse_summary.csv', ...
-        'torque.png', 'cumulative_integral.png', 'impulse_comparison.png', 'angular_displacement.png'};
+        'torque.png', 'cumulative_integral.png', 'impulse_comparison.png', 'angular_displacement.png', ...
+        'relative_errors.png', 'relative_errors.csv', '*_jumps.csv', 'jump_summary.csv', ...
+        '*_jump_diagnostics.png', 'cumulative_jump_comparison.png'};
     for p = 1:numel(patterns)
         oldFiles = dir(fullfile(outputDir, patterns{p}));
         for j = 1:numel(oldFiles)

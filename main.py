@@ -36,6 +36,7 @@
 
 # DEFINE DEPENDENCIES AND UDFs
 import argparse
+import csv
 import json
 from pathlib import Path
 import re
@@ -54,7 +55,7 @@ from Main_Functions.plot_funcs import plot_torque, plot_torque_int, plot_phi_gen
 
 # IMPULSE FUNCS
 from Main_Functions.impulse_funcs import (
-    report_impulses, save_impulse_summary,
+    report_impulses, save_impulse_summary, relative_error_metrics,
     mark_impulse_windows, plot_impulse_diagnostics, select_impulse_windows, validate_window,
 )
 
@@ -195,7 +196,10 @@ def analyze_trial(trial_id, config, *, reselect=False, interactive=True):
     if reselect or t_fit is None or t_fit == []:
         if not interactive:
             raise ValueError("Fit start is not saved; run interactively to select free decay.")
-        t_fit = float(plot_data(full_t, full_phi, 1))
+        # Reselection starts from the latest valid saved choice, not time zero.
+        initial_time = (t_fit if np.isscalar(t_fit) and np.isfinite(t_fit)
+                        and full_t[0] <= t_fit <= full_t[-1] else None)
+        t_fit = float(plot_data(full_t, full_phi, 1, initial_time=initial_time))
     if not np.isscalar(t_fit) or not np.isfinite(t_fit) or not full_t[0] <= t_fit <= full_t[-1]:
         raise ValueError("Fit start must be within the original recording.")
     metadata["fit_start_s"] = float(t_fit)
@@ -293,34 +297,12 @@ def plot_group_results(trials, output_dir, group):
             mark_impulse_windows(ax, trial["impulses"],
                                  time_offset_s=trial["startup_time"], trial_id=trial["trial_id"])
         ax.set_xlabel("Time from effective startup (s)")
-        ax.set_title(f"{group}: {field}")
+        ax.set_title(f"{group}: {'cumulative torque' if field == 'cumulative' else field}")
         ax.legend(fontsize=7, loc="lower right")
         fig.tight_layout()
         fig.savefig(output_dir / filename)
 
-    fig, ax = plt.subplots()
-    for index, trial in enumerate(trials):
-        # Small horizontal offsets keep individual trials visible at each
-        # event category. The measured signed impulse values are unchanged.
-        offset = (index - (len(trials) - 1) / 2) * .6 / max(1, len(trials))
-        positions = np.array([0, 1]) + offset
-        measured = [row["J_measured_dyn_cm_s"] for row in trial["impulses"]]
-        line, = ax.plot(positions, measured, "o", label=trial["trial_id"])
-        for position, row in zip(positions, trial["impulses"]):
-            # Vertical lines show the existing integration-window sensitivity
-            # range, not statistical uncertainty; black ticks mark theory.
-            ax.vlines(position, row["sensitivity_min_dyn_cm_s"],
-                      row["sensitivity_max_dyn_cm_s"], color=line.get_color())
-            if row["J_theory_dyn_cm_s"] is not None:
-                ax.plot(position, row["J_theory_dyn_cm_s"], "k_", markersize=14)
-    ax.plot([], [], "k_", markersize=14, label="Theory")
-    ax.set_xticks([0, 1])
-    ax.set_xticklabels(["Startup", "Shutdown"])
-    ax.set_ylabel("Signed impulse (dyn·cm·s)")
-    ax.set_title(f"{group}: individual impulses (lines: window sensitivity)")
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(output_dir / "impulse_comparison.png")
+    plot_jump_comparison(trials, output_dir, group)
 
     # Refresh this comparison too when a manual startup correction changes.
     fig, ax = plt.subplots()
@@ -333,6 +315,87 @@ def plot_group_results(trials, output_dir, group):
     ax.legend()
     fig.tight_layout()
     fig.savefig(output_dir / "angular_displacement.png")
+
+
+def plot_jump_comparison(trials, output_dir, group):
+    """Compare saved startup/shutdown cumulative torque and annotate its errors."""
+    # Paired observations share event colors; theory is a reference per event.
+    # Keep sensitivity as the existing min/max range, not statistical uncertainty.
+    fig, axes = plt.subplots(2, 1, sharex=True, figsize=(max(8, 1.25 * len(trials)), 6.5),
+                             gridspec_kw={"height_ratios": [2, 1]})
+    positions = np.arange(len(trials))
+    net_impulses = np.zeros(len(trials))
+    for event, color, marker, offset in (("startup", "tab:blue", "o", -.08),
+                                          ("shutdown", "tab:orange", "s", .08)):
+        rows = [next(row for row in trial["impulses"] if row["event"] == event)
+                for trial in trials]
+        measured = np.array([row["J_measured_dyn_cm_s"] for row in rows])
+        net_impulses += measured
+        x = positions + offset
+        low = [row["sensitivity_min_dyn_cm_s"] for row in rows]
+        high = [row["sensitivity_max_dyn_cm_s"] for row in rows]
+        axes[0].vlines(x, low, high, color=color, linewidth=1.2, alpha=.55)
+        axes[0].hlines(low, x - .025, x + .025, color=color, linewidth=1.2, alpha=.55)
+        axes[0].hlines(high, x - .025, x + .025, color=color, linewidth=1.2, alpha=.55)
+        axes[0].plot(x, measured, marker, color=color, markersize=6, zorder=3,
+                     label=event.capitalize())
+        for index, (trial, value) in enumerate(zip(trials, measured)):
+            error = relative_error_metrics(trial["impulses"])[f"{event}_relative_error_pct"]
+            label = "Error N/A" if error is None else f"Error {error:.2f}%"
+            axes[0].annotate(label, (x[index], value), xytext=(0, -16 if event == "startup" else 10),
+                             textcoords="offset points", ha="center",
+                             va="top" if event == "startup" else "bottom", fontsize=9,
+                             color=color, bbox=dict(facecolor="white", edgecolor="none", alpha=.8),
+                             annotation_clip=False)
+        theory = np.array([np.nan if row["J_theory_dyn_cm_s"] is None
+                           else row["J_theory_dyn_cm_s"] for row in rows])
+        if np.isfinite(theory).any():
+            if np.isfinite(theory).all() and np.all(theory == theory[0]):
+                axes[0].axhline(theory[0], color=color, linestyle="--", linewidth=1.3,
+                               label=f"{event.capitalize()} theory")
+            else:
+                axes[0].plot(positions, theory, "--_", color=color, linewidth=1.3,
+                             label=f"{event.capitalize()} theory")
+    # This is only the sum of the two measured event impulses. Do not integrate
+    # torque between events or infer uncertainty for their sum from sensitivity.
+    axes[1].vlines(positions, 0, net_impulses, color="0.5", linewidth=1.2)
+    axes[1].plot(positions, net_impulses, "o", color="0.2", markersize=6)
+    for index, trial in enumerate(trials):
+        mismatch = relative_error_metrics(trial["impulses"])["relative_magnitude_mismatch_pct"]
+        label = "Mismatch N/A" if mismatch is None else f"Mismatch {mismatch:.3g}%"
+        positive = net_impulses[index] >= 0
+        axes[1].annotate(label, (positions[index], net_impulses[index]),
+                         xytext=(0, -12 if positive else 10), textcoords="offset points",
+                         ha="center", va="top" if positive else "bottom", fontsize=9,
+                         bbox=dict(facecolor="white", edgecolor="none", alpha=.8),
+                         annotation_clip=False)
+    axes[1].set_title("Startup + shutdown (ideal: 0)", fontsize=10)
+    for ax in axes:
+        ax.axhline(0, color="0.35", linewidth=1, zorder=0)
+        ax.set_axisbelow(True)
+        ax.grid(axis="y", alpha=.18)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.margins(y=.2)
+        # Center both panels on zero; the lower panel has its own scale.
+        extent = max(abs(value) for value in ax.get_ylim())
+        ax.set_ylim(-extent, extent)
+    axes[0].set_ylabel("Cumulative torque (dyn·cm·s)")
+    axes[1].set_ylabel("Net cumulative torque (dyn·cm·s)")
+    axes[1].set_xticks(positions)
+    axes[1].set_xticklabels([trial["trial_id"] for trial in trials],
+                           rotation=45 if len(trials) > 8 else 0)
+    axes[1].set_xlim(-.5, len(trials) - .5)
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(.5, .94),
+               ncol=4, frameon=False, fontsize=9)
+    fig.suptitle(f"{group}: cumulative jump comparison", fontsize=14)
+    fig.text(.5, .015, "Error: relative error against theory. Mismatch: relative startup/shutdown magnitude mismatch.\n"
+             "Thin ranges: window sensitivity (±0.25 s), not confidence intervals.",
+             ha="center", fontsize=9, color="0.35")
+    fig.tight_layout(rect=(0, .045, 1, .87))
+    fig.savefig(output_dir / "cumulative_jump_comparison.png", dpi=180)
+
 
 
 def run_group(config, reynolds, direction, *, reselect=False, interactive=True, show=True):
@@ -349,9 +412,12 @@ def run_group(config, reynolds, direction, *, reselect=False, interactive=True, 
     output_dir = config["paths"]["output"] / group
     output_dir.mkdir(parents=True, exist_ok=True)
     # Replace only this group's analysis products, so failed trials cannot linger.
-    for pattern in ("*_signal.csv", "*_impulses.csv", "impulse_summary.csv",
-                    "torque.png", "cumulative_integral.png", "impulse_comparison.png",
-                    "angular_displacement.png", "*_impulse_diagnostics.png"):
+    for pattern in ("*_signal.csv", "*_jumps.csv", "jump_summary.csv",
+                    "torque.png", "cumulative_integral.png", "cumulative_jump_comparison.png",
+                    "angular_displacement.png", "*_jump_diagnostics.png",
+                    "relative_errors.png", "relative_errors.csv",
+                    "*_impulses.csv", "impulse_summary.csv", "impulse_comparison.png",
+                    "*_impulse_diagnostics.png"):
         for path in output_dir.glob(pattern):
             path.unlink()
     trials, failures = [], {}
@@ -361,12 +427,12 @@ def run_group(config, reynolds, direction, *, reselect=False, interactive=True, 
             np.savetxt(output_dir / f"{trial_id}_signal.csv",
                        np.column_stack([trial["time"], trial["torque"]]), delimiter=",",
                        header="time_seconds,torque_dyn_cm", comments="")
-            save_impulse_summary(output_dir / f"{trial_id}_impulses.csv",
+            save_impulse_summary(output_dir / f"{trial_id}_jumps.csv",
                                  trial_id, trial["impulses"])
         except Exception as exc:
             # An export may have failed after writing one file. Remove any
             # partial products before excluding this trial from the summary.
-            for suffix in ("signal", "impulses"):
+            for suffix in ("signal", "jumps"):
                 (output_dir / f"{trial_id}_{suffix}.csv").unlink(missing_ok=True)
             failures[trial_id] = str(exc)
             print(f"FAILED {trial_id}: {exc}")
@@ -377,7 +443,13 @@ def run_group(config, reynolds, direction, *, reselect=False, interactive=True, 
         # Passing None lets the existing exporter use those individual IDs.
         records = [dict(run_identity=trial["trial_id"], **row)
                    for trial in trials for row in trial["impulses"]]
-        save_impulse_summary(output_dir / "impulse_summary.csv", None, records)
+        save_impulse_summary(output_dir / "jump_summary.csv", None, records)
+        error_records = [dict(trial_id=trial["trial_id"], **relative_error_metrics(trial["impulses"]))
+                         for trial in trials]
+        with (output_dir / "relative_errors.csv").open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(error_records[0]))
+            writer.writeheader()
+            writer.writerows(error_records)
         plot_group_results(trials, output_dir, group)
         for trial in trials:
             if show:
@@ -385,8 +457,8 @@ def run_group(config, reynolds, direction, *, reselect=False, interactive=True, 
             # Save the startup/shutdown close-ups and their local cumulative
             # impulses for every trial, including runs using --no-show.
             fig = plot_impulse_diagnostics(trial["time"], trial["torque"], trial["impulses"])
-            fig.suptitle(f"{trial['trial_id']}: startup and shutdown impulses")
-            fig.savefig(output_dir / f"{trial['trial_id']}_impulse_diagnostics.png", dpi=300)
+            fig.suptitle(f"{trial['trial_id']}: startup and shutdown cumulative torque")
+            fig.savefig(output_dir / f"{trial['trial_id']}_jump_diagnostics.png", dpi=300)
             if not show:
                 plt.close(fig)
         if show:

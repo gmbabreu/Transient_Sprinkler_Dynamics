@@ -214,15 +214,80 @@ class BatchWorkflowTests(unittest.TestCase):
         self.assertEqual(first['impulses'], second['impulses'])
 
     def test_reselect_changes_windows_without_changing_event_times(self):
-        with patch.object(main, 'plot_data', return_value=12.), \
-             patch.object(main, 'select_impulse_windows', return_value=([9.5, 11.5], [19.5, 21.5])):
+        with patch.object(main, 'plot_data', return_value=12.) as fit, \
+             patch.object(main, 'select_impulse_windows', return_value=([9.5, 11.5], [19.5, 21.5])) as picker:
             result = self.analyze(reselect=True)
+        self.assertEqual(fit.call_args.kwargs['initial_time'], 10.)
+        self.assertEqual(picker.call_args.args[2:], ([10., 11.], [20., 21.]))
         metadata = self.read_metadata()
         self.assertEqual(metadata['fit_start_s'], 12.)
         self.assertEqual(metadata['audio_candidates_s'], self.metadata['audio_candidates_s'])
         self.assertEqual(metadata['manual_event_times_s'], self.metadata['manual_event_times_s'])
         self.assertEqual(result['startup_time'], 9.)
         self.assertEqual(metadata['integration_windows_s']['startup'], [9.5, 11.5])
+        # A second reselection must use the most recently accepted choices.
+        with patch.object(main, 'plot_data', return_value=12.) as fit, \
+             patch.object(main, 'select_impulse_windows', return_value=([9.5, 11.5], [19.5, 21.5])) as picker:
+            self.analyze(reselect=True)
+        self.assertEqual(fit.call_args.kwargs['initial_time'], 12.)
+        self.assertEqual(picker.call_args.args[2:], ([9.5, 11.5], [19.5, 21.5]))
+
+    def test_fit_picker_opens_at_saved_time(self):
+        def inspect():
+            marker = plt.gcf().axes[0].lines[1]
+            np.testing.assert_array_equal(marker.get_xdata(), [17.25, 17.25])
+        with patch.object(plt, 'show', side_effect=inspect):
+            chosen = main.plot_data(self.time, np.deg2rad(self.angle), 1, initial_time=17.25)
+        self.assertEqual(chosen, 17.25)
+
+    def test_impulse_comparison_preserves_values_and_labels_each_trial(self):
+        first = self.analyze(interactive=False)
+        trials = [first, dict(first, trial_id='1000r2')]
+        with patch.object(plt.Figure, 'savefig', autospec=True) as save:
+            main.plot_group_results(trials, self.root, '1000r')
+        fig = next(call.args[0] for call in save.call_args_list
+                   if Path(call.args[1]).name == 'cumulative_jump_comparison.png')
+        self.assertEqual(len(fig.axes), 2)
+        self.assertEqual([text.get_text() for text in fig.axes[1].get_xticklabels()],
+                         ['1000r1', '1000r2'])
+        for event_index, event in enumerate(('startup', 'shutdown')):
+            measured = next(line for line in fig.axes[0].lines
+                            if line.get_label() == event.capitalize())
+            theory = next(line for line in fig.axes[0].lines
+                          if line.get_label() == event.capitalize() + ' theory')
+            rows = [next(row for row in trial['impulses'] if row['event'] == event)
+                    for trial in trials]
+            np.testing.assert_array_equal(measured.get_ydata(),
+                                          [row['J_measured_dyn_cm_s'] for row in rows])
+            np.testing.assert_array_equal(theory.get_ydata(),
+                                          [rows[0]['J_theory_dyn_cm_s']] * 2)
+            segments = fig.axes[0].collections[3 * event_index].get_segments()
+            for segment, row in zip(segments, rows):
+                np.testing.assert_array_equal(segment[:, 1],
+                    [row['sensitivity_min_dyn_cm_s'], row['sensitivity_max_dyn_cm_s']])
+        net = next(line for line in fig.axes[1].lines if line.get_marker() == 'o')
+        np.testing.assert_array_equal(net.get_ydata(),
+            [sum(row['J_measured_dyn_cm_s'] for row in trial['impulses']) for trial in trials])
+        for ax in fig.axes:
+            self.assertTrue(any(np.array_equal(line.get_ydata(), [0, 0]) for line in ax.lines))
+        self.assertEqual(len(fig.legends[0].texts), 4)
+        labels = [text.get_text() for text in fig.axes[0].texts]
+        metrics = main.relative_error_metrics(first['impulses'])
+        self.assertIn(f"Error {metrics['startup_relative_error_pct']:.2f}%", labels)
+        self.assertIn(f"Error {metrics['shutdown_relative_error_pct']:.2f}%", labels)
+        self.assertIn(f"Mismatch {metrics['relative_magnitude_mismatch_pct']:.3g}%",
+                      [text.get_text() for text in fig.axes[1].texts])
+        startup = next(row for row in first['impulses'] if row['event'] == 'startup')
+        np.testing.assert_array_equal(fig.axes[0].texts[0].xy,
+                                      [-.08, startup['J_measured_dyn_cm_s']])
+        for figure_call in save.call_args_list:
+            figure = figure_call.args[0]
+            labels = [figure._suptitle.get_text()] if figure._suptitle is not None else []
+            for axis in figure.axes:
+                labels.extend([axis.get_title(), axis.get_xlabel(), axis.get_ylabel()])
+                labels.extend(text.get_text() for text in axis.texts)
+            self.assertNotIn('impulse', ' '.join(labels).lower())
+        self.assertNotIn('relative_errors.png', [Path(call.args[1]).name for call in save.call_args_list])
 
     def test_invalid_trials_are_reported_excluded_and_stale_outputs_removed(self):
         # Cover an explicit generation failure, a stale CSV with a NaN angle,
@@ -238,10 +303,12 @@ class BatchWorkflowTests(unittest.TestCase):
         # r4 deliberately has no metadata or data.
         output = self.root / 'results/1000r'
         output.mkdir(parents=True)
-        stale = ['1000r2_signal.csv', '1000r2_impulses.csv', '1000r3_signal.csv',
-                 '1000r2_impulse_diagnostics.png',
-                 'impulse_summary.csv', 'torque.png', 'cumulative_integral.png', 'impulse_comparison.png',
-                 'angular_displacement.png']
+        stale = ['1000r2_signal.csv', '1000r2_jumps.csv', '1000r3_signal.csv',
+                 '1000r2_jump_diagnostics.png',
+                 'jump_summary.csv', 'torque.png', 'cumulative_integral.png', 'cumulative_jump_comparison.png',
+                 'angular_displacement.png', 'relative_errors.png', 'relative_errors.csv',
+                 'impulse_comparison.png', 'impulse_summary.csv', '1000r2_impulses.csv',
+                 '1000r2_impulse_diagnostics.png']
         for name in stale:
             (output / name).write_text('stale')
         with contextlib.redirect_stdout(io.StringIO()):
@@ -252,16 +319,24 @@ class BatchWorkflowTests(unittest.TestCase):
         self.assertIn('[1, 7]', failures['1000r2'])
         self.assertIn('frames [7]', failures['1000r3'])
         self.assertFalse((output / '1000r2_signal.csv').exists())
-        self.assertFalse((output / '1000r2_impulses.csv').exists())
+        self.assertFalse((output / '1000r2_jumps.csv').exists())
         self.assertFalse((output / '1000r3_signal.csv').exists())
-        self.assertFalse((output / '1000r2_impulse_diagnostics.png').exists())
-        with (output / 'impulse_summary.csv').open() as stream:
+        self.assertFalse((output / '1000r2_jump_diagnostics.png').exists())
+        with (output / 'jump_summary.csv').open() as stream:
             rows = list(csv.DictReader(stream))
         self.assertEqual(len(rows), 2)
         self.assertEqual({row['run_identity'] for row in rows}, {'1000r1'})
         self.assertEqual({row['event'] for row in rows}, {'startup', 'shutdown'})
-        for name in ('torque.png', 'cumulative_integral.png', 'impulse_comparison.png',
-                     '1000r1_impulse_diagnostics.png', 'angular_displacement.png'):
+        self.assertFalse(any('impulse' in path.name for path in output.iterdir()))
+        self.assertFalse((output / 'relative_errors.png').exists())
+        with (output / 'relative_errors.csv').open() as stream:
+            errors = list(csv.DictReader(stream))
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0]['trial_id'], '1000r1')
+        for field, value in main.relative_error_metrics(trials[0]['impulses']).items():
+            self.assertEqual(float(errors[0][field]), value)
+        for name in ('torque.png', 'cumulative_integral.png', 'cumulative_jump_comparison.png',
+                     '1000r1_jump_diagnostics.png', 'angular_displacement.png'):
             self.assertGreater((output / name).stat().st_size, 100)
         # A subsequent all-failed run must not leave the earlier valid products.
         self.write_trial('1000r1', invalid)
