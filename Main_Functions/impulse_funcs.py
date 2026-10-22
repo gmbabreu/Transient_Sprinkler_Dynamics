@@ -189,13 +189,14 @@ def _valid_sensitivity_windows(
     time_s,
     chosen_window,
     other_window,
-    changes_s=(-0.5, -0.25, 0.0, 0.25, 0.5),
+    changes_s=(-0.25, 0.0, 0.25),
 ):
     """
     Generate nearby windows for checking sensitivity to integration limits.
 
     Each positive change expands the window equally on both sides.
     Each negative change contracts it equally on both sides.
+    Defaults check a 0.25-second contraction, the original, and a 0.25-second expansion.
     Invalid windows are discarded.
     """
     candidates = []
@@ -303,6 +304,12 @@ def analyze_impulses(
             integrate_impulse(time_s, torque_dyn_cm, candidate)
             for candidate in sensitivity_windows
         ]
+        # Keep the two named changes so the report can show contraction first,
+        # even when it produces a larger signed impulse than expansion does.
+        contracted = next((value for candidate, value in zip(sensitivity_windows, sensitivity_values)
+                           if candidate[0] > window[0] and candidate[1] < window[1]), None)
+        expanded = next((value for candidate, value in zip(sensitivity_windows, sensitivity_values)
+                         if candidate[0] < window[0] and candidate[1] > window[1]), None)
 
         residual = None if theory is None else measured - theory
         ratio = None if theory is None or theory == 0 else measured / theory
@@ -316,6 +323,8 @@ def analyze_impulses(
                 "J_theory_dyn_cm_s": theory,
                 "residual_dyn_cm_s": residual,
                 "measured_over_theory": ratio,
+                "sensitivity_contracted_dyn_cm_s": contracted,
+                "sensitivity_expanded_dyn_cm_s": expanded,
                 "sensitivity_min_dyn_cm_s": min(sensitivity_values),
                 "sensitivity_max_dyn_cm_s": max(sensitivity_values),
                 "sensitivity_windows_s": "; ".join(
@@ -333,15 +342,42 @@ def analyze_impulses(
     return results
 
 
+def relative_error_metrics(results):
+    """Return the existing reported percentages for plots, tables and reports.
+
+    Event error = 100*abs(J_measured-J_theory)/abs(J_theory).
+    Magnitude mismatch = 100*abs(abs(J_start)-abs(J_stop))/max(abs(J_start),abs(J_stop)).
+    Undefined denominators or missing theory return None, rather than zero.
+    """
+    metrics = {}
+    events = {row["event"]: row for row in results}
+    for event in ("startup", "shutdown"):
+        row = events.get(event)
+        theory = None if row is None else row["J_theory_dyn_cm_s"]
+        metrics[f"{event}_relative_error_pct"] = (
+            None if theory is None or theory == 0 else
+            100 * (abs(row["residual_dyn_cm_s"]) / abs(theory)))
+    metrics["relative_magnitude_mismatch_pct"] = None
+    if "startup" in events and "shutdown" in events:
+        j_start = events["startup"]["J_measured_dyn_cm_s"]
+        j_stop = events["shutdown"]["J_measured_dyn_cm_s"]
+        larger = max(abs(j_start), abs(j_stop))
+        if larger > 0:
+            metrics["relative_magnitude_mismatch_pct"] = (
+                100 * (abs(abs(j_start) - abs(j_stop)) / larger))
+    return metrics
+
+
 def report_impulses(results):
     """
     Print a concise experimental-versus-theory comparison.
     """
-    print("\nRAW TRANSIENT IMPULSE COMPARISON")
+    print("\nRAW TRANSIENT CUMULATIVE TORQUE COMPARISON")
     print("Units: dyn*cm*s = g*cm^2/s")
-    print("Measured impulse = integral of reconstructed torque over the selected window.")
+    print("Measured cumulative torque = integral of reconstructed torque over the selected window.")
     print("No baseline or steady-flow correction is applied.")
 
+    metrics = relative_error_metrics(results)
     for row in results:
         print(
             f"\n{row['event'].upper()} "
@@ -352,20 +388,22 @@ def report_impulses(results):
         if row["J_theory_dyn_cm_s"] is None:
             print("  theory     = unavailable (flow rate and/or geometry factor missing)")
         else:
-            print(f"  theory J   = {row['J_theory_dyn_cm_s']:.6g}")
-            print(f"  residual   = {row['residual_dyn_cm_s']:.6g}")
-
-            ratio = row["measured_over_theory"]
-            if ratio is None:
-                print("  measured/theory = undefined (zero theoretical impulse)")
+            theory = row["J_theory_dyn_cm_s"]
+            print(f"  theory J   = {theory:.6g}")
+            if theory == 0:
+                print("  relative error = undefined (zero theoretical cumulative torque)")
             else:
-                print(f"  measured/theory = {ratio:.6g}")
+                # Compare signed impulses against the theoretical magnitude,
+                # so an opposite-sign measurement still counts as disagreement.
+                relative_error = metrics[f"{row['event']}_relative_error_pct"]
+                print(f"  relative error = {relative_error:.2f}%")
 
-        print(
-            "  window sensitivity = "
-            f"[{row['sensitivity_min_dyn_cm_s']:.6g}, "
-            f"{row['sensitivity_max_dyn_cm_s']:.6g}]"
-        )
+        contracted = row["sensitivity_contracted_dyn_cm_s"]
+        expanded = row["sensitivity_expanded_dyn_cm_s"]
+        contracted_text = "unavailable" if contracted is None else f"{contracted:.6g}"
+        expanded_text = "unavailable" if expanded is None else f"{expanded:.6g}"
+        print("  window sensitivity (contracted, expanded) = "
+              f"[{contracted_text}, {expanded_text}]")
 
     if len(results) == 2:
         j_start = results[0]["J_measured_dyn_cm_s"]
@@ -380,18 +418,23 @@ def report_impulses(results):
 
         larger = max(abs(j_start), abs(j_stop))
         if larger > 0:
-            relative_magnitude_mismatch = abs(abs(j_start) - abs(j_stop)) / larger
+            relative_magnitude_mismatch = metrics["relative_magnitude_mismatch_pct"]
             print(
                 "  relative magnitude mismatch = "
-                f"{100 * relative_magnitude_mismatch:.3g}%"
+                f"{relative_magnitude_mismatch:.3g}%"
             )
 
 
 def save_impulse_summary(path, run_identity, results):
     """
     Save the raw impulse/theory comparison to a CSV file.
+
+    Supply a trial ID to attach it to that trial's startup/shutdown rows.
+    For a group summary, supply None and rows that already contain each
+    trial's run_identity; the individual result columns remain identical.
     """
-    records = [dict(run_identity=run_identity, **row) for row in results]
+    # Group summaries already carry an identity on every individual result.
+    records = results if run_identity is None else [dict(run_identity=run_identity, **row) for row in results]
 
     with open(path, "w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=list(records[0]))
@@ -399,35 +442,25 @@ def save_impulse_summary(path, run_identity, results):
         writer.writerows(records)
 
 
-def mark_impulse_windows(ax, results, annotate=True):
+def mark_impulse_windows(ax, results, *, time_offset_s=0.0, trial_id=None):
     """
     Mark selected integration windows on an existing axis.
+
+    Subtract time_offset_s for an aligned comparison plot while keeping the
+    results in original recording seconds. trial_id identifies each window
+    in a group legend. Existing individual plots keep their default behavior.
     """
     colors = ("tab:blue", "tab:orange")
 
     for row, color in zip(results, colors):
+        event_label = f"{trial_id}: {row['event']}" if trial_id else row['event']
         ax.axvspan(
-            row["window_start_s"],
-            row["window_end_s"],
+            row["window_start_s"] - time_offset_s,
+            row["window_end_s"] - time_offset_s,
             color=color,
             alpha=0.15,
-            label=f"{row['event']} integration window",
+            label=f"{event_label} integration window",
         )
-
-        if annotate:
-            label = f"{row['event']} J = {row['J_measured_dyn_cm_s']:.4g} dyn*cm*s"
-            if row["J_theory_dyn_cm_s"] is not None:
-                label += f"\ntheory = {row['J_theory_dyn_cm_s']:.4g}"
-
-            ax.text(
-                0.02 if row["event"] == "startup" else 0.52,
-                0.98,
-                label,
-                transform=ax.transAxes,
-                va="top",
-                fontsize=8,
-                bbox=dict(facecolor="white", alpha=0.8, edgecolor=color),
-            )
 
     ax.legend(fontsize=7, loc="lower right")
 
@@ -438,19 +471,31 @@ def select_impulse_windows(
     """Pick two endpoints per event on extracted torque close-ups.
 
     Close the figure, press Enter, or click Done to accept completed pairs.
-    Events with no complete pair retain their supplied sound-based window.
+    Events with no complete pair retain a valid supplied window. Invalid
+    suggestions must be corrected before accepting; closing or cancelling
+    without valid, nonoverlapping windows raises ValueError.
     Escape discards all clicks. view_windows controls only the initial views.
     """
     import matplotlib.pyplot as plt
     from matplotlib.widgets import Button
 
     time_s, torque_dyn_cm = validate_signal(time_s, torque_dyn_cm)
-    defaults = [validate_window(time_s, startup_window),
-                validate_window(time_s, shutdown_window)]
-    if defaults[0][1] > defaults[1][0]:
-        raise ValueError("Startup and shutdown integration windows must not overlap.")
+    defaults = []
+    for window in (startup_window, shutdown_window):
+        try:
+            defaults.append(validate_window(time_s, window))
+        except (TypeError, ValueError):
+            # No clamped fallback: this event requires a manual replacement.
+            defaults.append(None)
+    defaults_valid = (all(window is not None for window in defaults)
+                      and defaults[0][1] <= defaults[1][0])
     if view_windows is None:
-        view_windows = [(a - 2, b + 2) for a, b in defaults]
+        # Include startup from 9.5 s and shutdown from 19.5 s, or earlier
+        # when the 3 s lead-in requires it. Keep 2 s after each suggestion.
+        # These are display limits only; integration bounds stay unchanged.
+        view_windows = [(min(window[0] - 3, start), window[1] + 2)
+                        if window is not None else (time_s[0], time_s[-1])
+                        for window, start in zip(defaults, (9.5, 19.5))]
     if len(view_windows) != 2:
         raise ValueError("Supply one close-up view for each event.")
 
@@ -458,8 +503,8 @@ def select_impulse_windows(
     fig.subplots_adjust(top=0.76, bottom=0.25, wspace=0.3)
     fig.suptitle(
         "Extracted torque: click two interval endpoints in each panel (either order).\n"
-        "Done / Enter / close: accept; incomplete pairs use sound windows.\n"
-        "Reset / Escape: restore sound windows. Turn off zoom/pan to pick.",
+        "Done / Enter / close: accept valid windows; invalid suggestions need correction.\n"
+        "Reset / Escape: restore suggestions. Turn off zoom/pan to pick.",
         fontsize=10,
     )
     names = ("Startup", "Shutdown")
@@ -470,12 +515,24 @@ def select_impulse_windows(
     markers = [[], []]
     status = fig.text(0.05, 0.14, "", fontsize=9)
 
+    def checked_windows():
+        for name, window in zip(names, chosen):
+            if window is None:
+                raise ValueError(f"{name} integration window is invalid; select two valid endpoints.")
+            validate_window(time_s, window)
+        if chosen[0][1] > chosen[1][0]:
+            raise ValueError("Startup and shutdown integration windows must not overlap.")
+        return tuple(chosen)
+
     for i, (ax, view) in enumerate(zip(axes, view_windows)):
-        # Include the fallback window even when the sound cue changes.
-        context = validate_window(time_s, (
-            max(time_s[0], min(view[0], defaults[i][0])),
-            min(time_s[-1], max(view[1], defaults[i][1])),
-        ))
+        # Only the displayed context may be clipped to the recording. This
+        # never changes a suggested or selected integration bound.
+        if defaults[i] is not None:
+            view = (min(view[0], defaults[i][0]), max(view[1], defaults[i][1]))
+        try:
+            context = validate_window(time_s, (max(time_s[0], view[0]), min(time_s[-1], view[1])))
+        except ValueError:
+            context = (time_s[0], time_s[-1])
         local_time, local_torque = window_samples(time_s, torque_dyn_cm, context)
         ax.plot(local_time, local_torque, color="hotpink")
         ax.set(xlim=context, xlabel="Experimental time (s)",
@@ -486,15 +543,25 @@ def select_impulse_windows(
         for i, ax in enumerate(axes):
             for artist in markers[i]:
                 artist.remove()
-            a, b = chosen[i]
-            markers[i] = [ax.axvspan(a, b, color=colors[i], alpha=0.15),
-                          ax.axvline(a, color=colors[i], linestyle="--"),
-                          ax.axvline(b, color=colors[i], linestyle="--")]
-            source = "clicked" if manual[i] else "sound"
-            ax.set_title(f"{names[i]}: [{a:.3f}, {b:.3f}] s ({source})")
+            markers[i] = []
+            if chosen[i] is None:
+                ax.set_title(f"{names[i]}: select a valid integration window")
+            else:
+                a, b = chosen[i]
+                markers[i] = [ax.axvspan(a, b, color=colors[i], alpha=0.15),
+                              ax.axvline(a, color=colors[i], linestyle="--"),
+                              ax.axvline(b, color=colors[i], linestyle="--")]
+                source = "clicked" if manual[i] else "suggested"
+                ax.set_title(f"{names[i]}: [{a:.3f}, {b:.3f}] s ({source})")
             if pending[i] is not None:
                 markers[i].append(ax.axvline(pending[i], color=colors[i]))
-        status.set_text(message or "Shaded windows will be used. Click Done when ready.")
+        if not message:
+            try:
+                checked_windows()
+                message = "Shaded windows will be used. Click Done when ready."
+            except ValueError as error:
+                message = str(error)
+        status.set_text(message)
         fig.canvas.draw_idle()
 
     def on_click(event):
@@ -508,11 +575,11 @@ def select_impulse_windows(
         if not np.isfinite(endpoint) or not time_s[0] <= endpoint <= time_s[-1]:
             return
         if pending[i] is None:
-            # An incomplete replacement falls back to this event's sound window.
+            # Keep the existing fallback behavior when suggestions are valid.
             trial = list(chosen)
             trial[i] = defaults[i]
-            if trial[0][1] > trial[1][0]:
-                redraw("Reset first: the sound fallback would overlap the other clicked window.")
+            if defaults_valid and trial[0][1] > trial[1][0]:
+                redraw("Reset first: the initial window would overlap the other clicked window.")
                 return
             chosen[i], manual[i], pending[i] = defaults[i], False, endpoint
             redraw(f"{names[i]}: first endpoint {endpoint:.3f} s; click the other endpoint.")
@@ -522,7 +589,10 @@ def select_impulse_windows(
         trial[i] = candidate
         try:
             validate_window(time_s, candidate)
-            if trial[0][1] > trial[1][0]:
+            # An invalid initial suggestion must not block repair of the other
+            # event. Enforce overlap against accepted clicks or valid defaults.
+            if (all(window is not None for window in trial)
+                    and (defaults_valid or manual[1-i]) and trial[0][1] > trial[1][0]):
                 raise ValueError("Startup must end before shutdown begins.")
         except ValueError as error:
             redraw(f"{error} Click a different second endpoint, or Reset.")
@@ -534,9 +604,14 @@ def select_impulse_windows(
         chosen[:] = defaults
         pending[:] = [None, None]
         manual[:] = [False, False]
-        redraw("Sound windows restored. Click two endpoints per event, or Done.")
+        redraw()
 
     def done(event=None):
+        try:
+            checked_windows()
+        except ValueError as error:
+            redraw(str(error))
+            return
         plt.close(fig)
 
     def on_key(event):
@@ -544,9 +619,9 @@ def select_impulse_windows(
             done()
         elif event.key == "escape":
             reset()
-            done()
+            plt.close(fig)
 
-    reset_button = Button(fig.add_axes([0.61, 0.04, 0.16, 0.06]), "Reset to sound")
+    reset_button = Button(fig.add_axes([0.61, 0.04, 0.16, 0.06]), "Reset selections")
     done_button = Button(fig.add_axes([0.79, 0.04, 0.16, 0.06]), "Done")
     reset_button.on_clicked(reset)
     done_button.on_clicked(done)
@@ -559,7 +634,9 @@ def select_impulse_windows(
         for connection in connections:
             fig.canvas.mpl_disconnect(connection)
         plt.close(fig)
-    return tuple(chosen)
+    # Closing/cancelling invalid suggestions fails rather than returning
+    # clamped or overlapping bounds that main.py could save as selections.
+    return checked_windows()
 
 
 def plot_impulse_diagnostics(time_s, torque_dyn_cm, results):
@@ -629,7 +706,7 @@ def plot_impulse_diagnostics(time_s, torque_dyn_cm, results):
         axes[1, col].set(
             xlim=(start_s, end_s),
             xlabel="Experimental time (s)",
-            ylabel="Cumulative impulse (dyn*cm*s)",
+            ylabel="Cumulative torque (dyn*cm*s)",
         )
         axes[1, col].legend(fontsize=8)
 

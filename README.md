@@ -1,301 +1,260 @@
-# Transient Dynamics Sprinkler — `main.py`
+# Transient Sprinkler Dynamics
 
-Work done by Rachel Bertaud, Gabriel Abreu, and Kelly Yu.
+Work by Rachel Bertaud, Gabriel Abreu, and Kelly Yu.
 
----
+Reconstruct torque from each trial's angular displacement by fitting its free-decay
+tail, applying the existing Fourier solver and torque filter, and checking a
+forward ODE reconstruction. Measure two separate signed cumulative torque values around pump
+startup and shutdown, and compare individual trials against theory.
 
-## What This Code Does
+## Four-step workflow
 
-Extracts the **torque signal** of a sprinkler system from measured angular position data. It works by assuming the free-decay tail of the sprinkler's angular position fits a **damped harmonic oscillator ODE**, then uses that fit to identify the system's natural frequency (ω) and damping coefficient (γ). With those parameters known, a Fourier-based method reconstructs the full torque signal. A forward ODE solve is then run to verify the result. Refer to the end for the matematical breakdown.
+Run these commands from the repository root.
 
----
+1. **Configure the batch.** Put recordings in `Data_Generation/trials/` with
+   names such as `1000f1.MTS`. Edit the groups and counts in
+   [`experiment_config.json`](experiment_config.json):
 
-## System Overview
+   ```json
+   "trial_groups": ["1000f", "1000r"],
+   "trials_per_group": [2, 3]
+   ```
 
-```
-Step 0 → Set user-defined inputs (switches, data selection)
-Step 1 → Read CSV data, interactively pick fit window
-Step 2 → Estimate ω (natural frequency) and γ (damping coefficient)
-Step 3 → Clean noise from data (optional)
-Step 4 → Extract torque signal via Fourier transform
-Step 5 → Forward ODE solve to verify extracted torque signal
-Step 6 → Save torque signal to CSV and plot results
-```
+   This selects `1000f1–2` and `1000r1–3`. Use a single count, such as `3`,
+   to apply it to every group. All groups must share the same camera/ruler setup.
 
----
+   Videos can stay on an external drive: set `paths.trials` to its absolute
+   folder path, such as `/run/media/ga2740/CAM_SD/PRIVATE/AVCHD/BDMV/STREAM`.
+   The leading `/` matters; paths without it are relative to the JSON's folder.
+   Video filenames must still match the trial IDs, such as `1000r2.MTS`.
 
-## Dependencies
+2. **Extract frames and calibrate (MATLAB).** Run extraction, then click each
+   ruler mark requested at the top of the calibration window. Points stay
+   labeled and can be dragged to correct them. After placing all marks, click a
+   point to select it (cyan): arrow keys move it 1 pixel; Shift+arrow moves it
+   10 pixels. Click **Accept points** after review, or close the window to
+   cancel without saving calibration parameters.
+   Each calibration refreshes the reference image from `001.jpg` of the first
+   configured trial, including when a reference image already exists.
 
-```
-numpy>=2
-scipy
-matplotlib
-```
+   ```matlab
+   run('Data_Generation/save_frames.m')
+   run('Data_Generation/calibration/calibrateRulerAxis.m')
+   ```
 
-Install with:
-```bash
-pip install 'numpy>=2' scipy matplotlib
-```
+   Complete frame extractions and the saved calibration can be reused.
 
-`main.py` uses `np.trapezoid`, which requires NumPy 2 or newer.
+3. **Generate trial data (MATLAB).**
 
----
+   ```matlab
+   run('Data_Generation/generateData.m')
+   ```
 
-## Data Format
+   This saves angle CSVs, audio-event candidates and per-trial metadata.
+   Use `audio.inspect` to review the cues; put corrections in the trial's
+   `manual_event_times_s` metadata fields. Failed trials are reported and skipped.
 
-Input data is a `.csv` file with **two columns** (header row is skipped):
+4. **Analyze a group (Python).**
 
-| Column 0 | Column 1 |
-|----------|----------|
-| time (t) | angular position (φ) |
+   ```bash
+   python main.py 1000 r
+   ```
 
-**File naming convention:** `{Re}{direction}{N}_data.csv`
+   On the first run, choose the free-decay fit start and two integration
+   endpoints for each event. Selections are saved and reused next time.
+   Results and plots go to `results/1000r/` by default.
 
-- `direction`: `f` for forward/outward flow or `r` for reverse/inward flow
-- `Re`: Reynolds number (e.g. `500`, `1000`)
-- `N`: trial number (e.g. `1`, `2`)
+| Optional argument | Use |
+| --- | --- |
+| `--reselect` | Reopen the fit start and integration windows at the latest saved selections |
+| `--no-show` | Save plots without showing final diagnostics; selection remains interactive |
+| `--non-interactive` | Use a saved fit start and valid saved/audio-based windows without prompting |
+| `--config path/to/config.json` | Use a different batch configuration |
 
-Example: `1000r1_data.csv`
+The named form `python main.py --re 1000 --direction r` also works.
 
-The default input directory is `Data_Generation/data`, resolved relative to
-`main.py`. Input and output paths do not depend on the terminal's working
-directory, and the script does not change that directory.
-
-Recordings must have matching, finite, real one-dimensional time and angle
-arrays with at least two samples and strictly increasing timestamps. FFT
-reconstruction requires approximately uniform sampling: every interval must
-match the mean interval within `rtol=1e-4, atol=1e-12` seconds. Unsupported
-recordings raise `ValueError`; irregular recordings need resampling first.
-
-Every original sample and timestamp is retained, including recordings with
-2,048 or more samples. The FFT base length is the smallest power of two at
-least as large as the recording, with a minimum of 2,048; the total FFT length
-is twice that base. The remaining samples are prepended at the initial angle,
-with timestamps at integer sampling intervals before the first original time.
-Recordings shorter than 2,048 retain the existing 4,096-sample padded length.
-
----
-
-## User-Defined Inputs (Step 0)
-
-At the top of `main.py`, set these variables before running:
-
-| Variable | Type | Description |
-|---|---|---|
-| `plot_switch` | `0` or `1` | `1` = show all plots at end, `0` = suppress all plots |
-| `write_t` | `0` or `1` | `1` = save extracted torque signal to CSV, `0` = skip saving |
-| `fit_switch` | `0` or `1` | `1` = refine ω/γ estimates with a curve fit, `0` = use raw peak estimates |
-| `proc_data_switch` | `0` or `1` | `1` = clean noise from data, `0` = use raw data |
-| `spin_dir` | string | Spin direction — `"f"` or `"r"` |
-| `re` | string | Reynolds number matching the filename of interest — e.g. `"1000"` |
-| `trial` | int | Trial number matching the filename of interest — e.g. `1` |
-| `data_dir` | string | Defaults to `Data_Generation/data` relative to `main.py`; used for input CSVs and saved results |
-
----
-
-## How to Run
+MATLAB scripts add their own helper directories. Run them by full path or add
+`Data_Generation` and `Data_Generation/calibration` to MATLAB's search path.
+MATLAB with Image Processing Toolbox and supported video/audio codecs is required.
+Python requires `numpy`, `scipy`, and `matplotlib`. NumPy 1.x and 2.x are
+supported; trapezoidal integration uses SciPy.
 
 ```bash
-python main.py
-```
-
-From another working directory, invoke Python with the path to `main.py`;
-the data directory will still resolve beside the code. For video extraction
-and calibration, see [Data_Generation/README.md](Data_Generation/README.md).
-Calibration scripts, reference images, and generated calibration files live
-in `Data_Generation/calibration`.
-
-The script is **interactive** — it will open one plot window with a slider. Drag the slider to select the **start time** for the free-decay fit (should be near a peak a bit after the sprinkler begins ringing down). Close the window when done. After the window is closed, the script runs automatically and prints estimated/fitted values to the terminal.
-
----
-
-## Inspect pump timing with audio (`1000r1.MTS`)
-
-Run `sound.m` from MATLAB. It resolves the recording at
-`Data_Generation/trials/1000r1.MTS` relative to the script, so MATLAB's current
-folder does not need to be the trials folder. The default run plots the whole
-recording without playing it. All six channels are used for analysis; the
-20 ms RMS panel helps show sustained sound changes, and the angle panel uses
-the original timestamps from `1000r1_data.csv`.
-
-For this trial, use these **audio inspection ranges**, then narrow them as needed:
-
-| Event | `startTime` | `endTime` |
-|---|---|---|
-| Startup | `10` | `14` |
-| Shutdown | `20` | `24` |
-
-Set `playbackEnabled = true` to listen to a selected range, starting with low
-speaker volume. `playbackChannels = [1 2]` selects the playback channels; try
-other channels if the motor is unclear. Playback uses a fixed gain of 0.25.
-The printed peak is the largest absolute sample across **all** channels,
-which can differ from the channels being played. It is a candidate sound cue,
-not a verified motor onset. A click, speech, or a later sound can dominate it.
-The script still reads the full audio file; narrowing the range shortens
-playback and restricts the peak search.
-
-After listening and comparing with the video, use the confirmed sound cues to
-help choose `startup_window` and `shutdown_window` in `main.py`. Use original video seconds.
-`audioToVideoOffset_s` defaults to zero; verify sound/video synchronization
-before relying on fine timing, especially if you use a converted recording.
-The current data-generation script timestamps frame 1 at zero. MATLAB reports
-matching audio/video durations for this recording, but matching durations alone
-do not establish synchronization of individual events.
-
-Choose `startup_window` and `shutdown_window` separately on the reconstructed
-**torque** plots: start before the transient and end after it settles. The audio
-search ranges above are not established integration bounds. Compare the local
-cumulative integral and the reported window sensitivity as you adjust bounds.
-
-## Startup and shutdown angular impulses
-
-The settings immediately below `kappa` in `main.py` configure the new analysis.
-Times are in the original experimental coordinates. Set `startup_window` and
-`shutdown_window` directly, or express their endpoints relative to the `sound`
-cue as in the current configuration. No separate pump event times are required.
-These are editable windows, not established transient durations.
-
-With `plot_switch = 1` and `click_impulse_windows = 1` (the default), an
-**extracted torque** picker opens before the final analysis. It shows close-ups
-around startup (9–13 s) and shutdown (19–23 s). Click twice in each panel to
-choose that event's integration endpoints, in either order. Shading and panel
-titles show the selected intervals. Click **Done**, press **Enter**, or close
-the picker to continue. An event with no clicks or only one click keeps its
-sound-based window, so either event can also be selected independently.
-
-**Reset to sound** clears selections; **Escape** restores both defaults and
-continues. Invalid or overlapping pairs are rejected; retry the second click.
-To replace a completed pair, click two new endpoints in that panel.
-Turn off toolbar zoom/pan before picking. `impulse_selection_views` controls
-the initial close-ups, not integration limits. Set `click_impulse_windows = 0`
-to skip the picker. With `plot_switch = 0`, the configured windows are used
-directly. Selected bounds apply to final integral plots, terminal results,
-sensitivity analysis, and the impulse CSV.
-
-The analysis checks that `fourier_t_seg` equals `full_t`;
-it does not locate events using padded indices or `turnOnIdx`.
-
-Each event reports signed trapezoidal area with linearly interpolated exact
-endpoints, in **dyn·cm·s = g·cm²/s**. Invalid, out-of-range, or overlapping event
-windows are rejected. The reported measurement is the raw integral of reconstructed
-dimensional torque. No baseline subtraction or steady-flow correction is applied.
-
-Set `flow_rate_cm3_s` to a positive **total** flow magnitude through both arms and
-`geometry_factor_cm2` to signed `G = integral_C (x dy - y dx)`, where C follows
-**one** arm outward from the hub and coordinates are relative to the rotation axis.
-With `rho_g_cm3 = 1.0`, predictions are `J_start = -rho * Q_signed * G` and
-`J_stop = +rho * Q_signed * G`, multiplied by `sign_convention`.
-There is no additional factor of two. The current filename selector uses `spin_dir
-= "f"` for forward/outward flow (positive Q) and `"r"` for reverse/inward flow
-(negative Q). Set `sign_convention` explicitly to +1 if measured positive rotation
-matches the positive z direction for G, or -1 otherwise; never choose it by fit.
-Neither Q nor G is inferred from Reynolds number. If either is `None`, experimental
-results still print with “theory unavailable.” Otherwise each measurement includes
-prediction, signed residual (measurement minus theory), and measured/theory ratio;
-zero predictions have an undefined ratio.
-
-Forward-flow comparisons are exploratory because this arm-only model may omit
-external-jet contributions. Reverse flow is the cleaner proposed test. No experimental
-agreement is established without independently supplied geometry and flow inputs.
-
-Window sensitivity repeats each integration with both ends expanded or contracted
-by 0.25 and 0.5 s. Only positive-duration, in-range windows that do not overlap
-the other nominal event window are retained, along with the nominal window.
-Printed ranges are **window sensitivity, not statistical confidence intervals**.
-
-Existing torque plots gain window shading and impulse annotations.
-A new figure shows torque close-ups with surrounding context and local raw
-cumulative integrals, zeroed at the exact left endpoint. Set
-`write_impulse_summary = 1` to write a separate `{data_name}_impulses.csv` in
-`data_dir` (replaced on reruns), including run identity, windows,
-inputs, predictions, residuals, ratios, and sensitivity ranges. Unavailable theory
-fields are blank. The separate optional signal CSV now exports dimensional
-torque on the original time segment, as described below.
-
-Run the synthetic verification suite with:
-
-```bash
+pip install numpy scipy matplotlib
 python -m unittest discover -s tests -v
 ```
 
-## Outputs
+## Settings and saved selections
 
-**Terminal output:**
-- Estimated γ, ω, and ODE constants (c1, c2) from peak analysis
-- Fitted γ, ω, c1, c2 after curve fitting (if `fit_switch = 1`)
-- Error between forward solve for $\phi$ us9ing extracted torquer and experimental $\phi$ data.
-- Path of saved signal file (if `write_t = 1`)
+All shared batch settings live in `experiment_config.json`:
 
-**Saved file (if `write_t = 1`):**
+| Setting | Purpose |
+| --- | --- |
+| `paths` | Inputs, generated data, calibration files and group results |
+| `trial_groups`, `trials_per_group` | Groups such as `1000f`; a shared positive integer repeat count or an array with one count per group, in order |
+| `video` | Extension, mirror distance in inches, laser YCbCr limits, extraction regeneration and tracking diagnostics |
+| `physics` | Spring stiffness, density, flow conversion, signed one-arm geometry factor and sign convention |
+| `analysis` | Existing fit switch, Chebyshev torque-filter settings and diagnostic display |
+| `audio` | Separate search intervals in **audio seconds**, audio-to-video offset, inspection and playback |
+| `integration_window_offsets_s` | Initial bounds relative to each effective event time in **video seconds** |
 
-Output is written to `data_dir` with the name `{Re}{spin_dir}{N}_data_signal.csv`
-— e.g. `1000r1_data_signal.csv`. The filename is unchanged, and an existing
-file is replaced. The export contains exactly one row per original input
-sample, with no artificial padding. Its header is `time_seconds,torque_dyn_cm`.
+To rebuild frames, set `video.regenerate_frames` to `true`, run extraction,
+then restore it to `false`. Incomplete folders are rebuilt automatically, with
+old generated JPEGs removed first. Extraction creates a missing calibration
+reference from the first group's repeat 1; starting calibration refreshes it
+from that trial's current first frame. Recalibrate for a new camera/ruler setup.
 
-| Column | Description |
-|--------|-------------|
-| `time_seconds` | Original experimental timestamp, in seconds |
-| `torque_dyn_cm` | Dimensional torque in dyn·cm, identical to `true_torque` used for impulse analysis |
+The existing YCbCr laser thresholds are unchanged and editable under `video.laser_ycbcr_limits`.
+[`Data_Generation/ycbcrMask.m`](Data_Generation/ycbcrMask.m) applies these limits
+when isolating the laser in each frame.
+Spring calibration is a different physical setup: its geometry and measured
+weights remain in `Data_Generation/calibration/calibrateSpring.m`. Copy its
+resulting stiffness into `physics.kappa_dyn_cm_per_rad`; do not substitute the
+video geometry into that script.
 
-This corrects **both the exported time segment and physical units**. Previously,
-the export started at the midpoint of the padded array (`N_f//2`) and wrote
-unscaled reconstructed forcing under `t,extracted_torque`. That midpoint can
-include artificial padding and does not generally match the input recording.
-The new export starts at `N_added` and uses torque scaled by the inferred
-moment of inertia `I = kappa/c**2`, after the existing optional filtering.
-Old signal CSVs are not in dyn·cm and should not be compared directly with
-the new dimensional values; rerun the analysis to regenerate them.
+`audio.inspect` shows the original waveform, 20 ms RMS and angular-position
+panels for each event, sharing the original video time axis.
+`audio.playback_enabled` auditions selected channels at `audio.playback_gain`,
+with a moving cursor on the waveform.
+Enable these settings in `experiment_config.json` and run
+`Data_Generation/generateData.m` to inspect or replay the audio. It calls
+[`Data_Generation/estimateSoundTimes.m`](Data_Generation/estimateSoundTimes.m)
+and saves candidates separately from manual event corrections, as video seconds:
+`video_time = audio_time + audio_to_video_offset_s`.
 
-**Plots (if `plot_switch = 1`):**
-1. **Analytical solution** — raw data (scatter) overlaid with the damped oscillator fit (line); zoomed to the fit region, with the fit start point highlighted
-2. **Franken signal** — the stitched signal used for the FFT, with color-coded segments: prepended constant (blue) and original data (pink)
-3. **Extracted torque signal** — real part of the torque signal over the forcing window
-4. **ODE verification** — forward-solve for φ(t) (line) overlaid on measured data (scatter). forward solve uses extracted torque signal.
+Each `data/{trial}_metadata.json` contains:
 
----
+- `valid`, `failure_reason`, `invalid_frames`: tracking status and 1-based frame numbers.
+- `audio_candidates_s`: independently estimated `startup` and `shutdown` times.
+- `manual_event_times_s`: optional `startup` and `shutdown` corrections in original video seconds.
+- `fit_start_s`: selected free-decay start in original seconds.
+- `integration_windows_s`: selected `startup` and `shutdown` pairs in original seconds.
 
-## File Structure
+The picker can repair invalid suggested windows. Accepting requires two
+positive-duration, nonoverlapping windows inside the recording. Incomplete
+pairs retain valid suggestions; closing/cancelling without valid bounds fails
+without overwriting saved windows. Noninteractive runs reject invalid bounds.
 
+Unset selections may be JSON `null` or MATLAB's empty array `[]`. For example,
+edit only the appropriate manual correction field to confirm an audio cue:
+
+```json
+"manual_event_times_s": {"startup": 10.2, "shutdown": null}
 ```
-Transient_Dynamics_Sprinkler/
-├── main.py                          # Main code — run this
-└── Main_Functions/
-    ├── dataread_funcs.py            # CSV reading, peak finding, interactive slider plots
-    ├── estimate_funcs.py            # ω and γ estimation and curve fitting
-    ├── process_funcs.py             # Noise removal and signal stitching ("franken" signal)
-    ├── fft_funcs.py                 # Fourier-based torque extraction and forward ODE solve
-    └── plot_funcs.py                # All plotting functions
-```
 
----
+The effective event time is the manual correction when present, otherwise the
+candidate. Ordinary regeneration preserves manual corrections, fit start and
+integration selections. Regenerating frames invalidates the old tracking data
+until generation succeeds again. Missing/invalid metadata and nonfinite input
+angles are rejected by Python, even if a stale CSV exists.
+Both MATLAB generation and Python analysis require effective times satisfying
+`recording_start <= startup < shutdown <= recording_end`; invalid trials are reported and skipped.
 
-## Method Summary
+Comparison curves use `aligned_time = original_time - effective_startup_time`
+on each trial's own samples. Saved data and integration selections retain original
+timestamps. Changing an integration window never changes audio timing or plot
+alignment. Python analysis refreshes all comparison plots, including angular
+displacement, from successful trials using the latest manual startup corrections.
+Previously saved integration bounds remain unchanged until edited or reselected.
+There is no active motion alignment, noise removal, averaging, shared-grid
+interpolation, or mean-data export. `plotData.m` has been retired.
 
-1. **ω estimation:** Period is measured from peak-to-peak spacing in the free-decay tail. `ω_d = 2π / T_mean`, then `ω = sqrt(ω_d² + γ²)`.
+## Standard group outputs
 
-2. **γ estimation:** Peak amplitudes decay as `e^(-γt)`. An exponential is fit to normalized peak amplitudes to extract γ.
+The default group folder is `results/{Re}{direction}/`, for example `results/1000f/`:
 
-3. **ODE fit (optional):** Both ω and γ are further refined by fitting the full free-decay segment to the analytical damped oscillator solution using `scipy.optimize.curve_fit`.
+| File | Contents |
+| --- | --- |
+| `angular_displacement.png` | MATLAB generation and Python analysis: one audio-aligned line per successful trial |
+| `{trial}_signal.csv` | Original timestamps and dimensional torque: `time_seconds,torque_dyn_cm` |
+| `{trial}_jumps.csv` | Separate signed startup/shutdown results, predictions and window sensitivity |
+| `jump_summary.csv` | All successful individual event rows with trial identity |
+| `torque.png` | Overlaid reconstructed torque with each trial's selected integration windows |
+| `cumulative_integral.png` | Overlaid raw cumulative torque integrals with each trial's selected integration windows |
+| `cumulative_jump_comparison.png` | Main cumulative jump comparison: startup/shutdown cumulative torque against theory and their sum relative to zero; point labels show relative errors and magnitude mismatch; thin ranges show window sensitivity |
+| `relative_errors.csv` | The same three percentages at full precision; undefined values are blank |
+| `{trial}_jump_diagnostics.png` | Per-trial startup/shutdown torque close-ups and local cumulative torque against theory, saved at 300 dpi |
 
-4. **Signal padding ("Franken" signal):** A constant initial-value segment is prepended to the full recording. No original samples are trimmed, and no analytical tail is appended. `phi_an` remains an argument of `combine_data` for compatibility but is unused there.
+The torque and cumulative-integral plots shade every trial's startup/shutdown
+windows on the same audio-aligned axis as its curve. Legends identify the trial
+and event.
+The per-trial diagnostic figure uses original recording seconds and is saved
+even with `--no-show`; its filename is independent of figure numbering.
 
-5. **Torque extraction (FFT):** The torque signal `f(t)` is extracted by deconvolving the ODE's transfer function `G(k)` in Fourier space:
-   `F(k) = Y(k) / G(k)`, where `G(k) = -1 / (k² + 2iγk - ω²)`
+Generation removes the affected groups' previous generated results before
+rebuilding. Analysis replaces its group products and removes stale per-trial
+analysis CSVs, including those belonging to failed or deselected trials. It
+also replaces the angular figure and removes it if the entire group fails.
+Enable `video.masked_video`,
+`video.overlay_video`, or `video.overlay_frames` to save masked videos, tracking
+overlay videos, or individual overlay JPEGs under the configured data folder.
+Older example data and jump CSVs in `Data_Generation/data` are not selected as
+results; Python requires the configured trial's valid metadata from generation.
 
-6. **Verification (forward ODE):** The extracted torque signal is used as forcing when solving ODE (RK45) to reconstruct φ(t).
+## Numerical conventions
 
-The existing frequency/transfer-function convention is retained: `L` is the
-last padded timestamp minus the first, and the frequency vector sets its
-Nyquist entry to zero. Using `N_f * dt` as the FFT period or treating Nyquist
-differently are separate numerical questions; this length/export fix does
-not change them. Fitting, filtering, and impulse integration are unchanged.
-The existing noise-removal algorithm can compute an empty pre-motion baseline
-when its detected onset index is zero (including when the threshold is never
-crossed). Resulting nonfinite values are now rejected before FFT reconstruction;
-the baseline-selection algorithm is a separate issue and is unchanged here.
+`main.py` retains Rachel Bertaud's introductory explanation and numbered analysis
+sections. The per-trial system-parameter report also retains its original formulas
+for inertia, damping, natural period and decay timescale.
 
----
+Initial measurement noise remains in the input. FFT padding, period/frequency
+conventions, filtering, reconstruction and the forward solver retain their existing
+behavior. Each recording must contain at least two finite samples with increasing,
+approximately uniform timestamps (`rtol=1e-4`, `atol=1e-12` s). Irregular or missing
+samples invalidate this workflow; repeat the experiment rather than filling gaps.
+The FFT length is twice the smallest power of two at least as large as the input,
+with a minimum base length of 2048. Constant initial-value padding precedes the
+full recording. Exports contain every original sample, without padding.
+
+`I = kappa / c**2` scales reconstructed forcing to torque in dyn·cm.
+`impulse_funcs.py` integrates the raw signed torque separately around startup and
+shutdown with exact, linearly interpolated integration endpoints, preserving its
+existing units (**dyn·cm·s = g·cm²/s**), signs and sensitivity calculations. There
+is no baseline subtraction and no integral between events. Window sensitivity varies
+both ends by 0.25 s where valid, including the original window in the reported
+range; it is not a statistical confidence interval.
+The terminal reports `[contracted, expanded]` in that order, rather than sorting
+those two cumulative torque values. Invalid variants appear as `unavailable`. CSVs include
+the corresponding `sensitivity_contracted_dyn_cm_s` and
+`sensitivity_expanded_dyn_cm_s` fields. The numerical minimum/maximum across
+valid variants and the original window remain available for plotting the range.
+
+The terminal compares each measured cumulative torque with theory using
+`relative error = 100 * abs(measured - theory) / abs(theory)` percent, displayed
+to two decimal places. A zero theoretical cumulative torque gives an undefined percentage.
+Residuals and measured/theory ratios remain available in the CSV exports.
+
+The current flow setting preserves the existing relation `Q = Re * 0.0094` cm³/s,
+a positive **total flow through both arms**. Verify this conversion for your batch.
+`G` is the signed integral `x dy - y dx` along **one arm outward from the hub**;
+`sign_convention` maps measured positive rotation to the positive z direction.
+With signed outward-positive flow, predictions are `J_start = -rho * Q_signed * G`
+and `J_stop = +rho * Q_signed * G`, multiplied by `sign_convention`. There is no
+extra factor of two. Set the flow conversion or geometry factor to `null` to leave
+theory unavailable. Forward-flow comparisons remain exploratory because the
+arm-only model may omit external-jet contributions. Damping-factor investigation
+and other numerical changes are deferred.
+
+## Verification
+
+The original test suite and focused batch checks exercise reconstruction/export,
+group selection, saved timing/selections, reselection and invalid-trial exclusion.
+All 42 Python tests passed with both Python 3.12/NumPy 2 and the default
+Python 3.9/NumPy 1.23.5 environment, including shared group/repeat expansion
+and invalid configuration checks. MATLAB R2026a syntax
+checks and synthetic AVI/JPEG/WAV checks also passed: extraction completion and
+reuse, stale-frame cleanup, reference preservation, independent audio candidates
+and offsets, metadata preservation, missing-detection exclusion and continuation.
+For the existing `1000r1_data.csv`, the pre-refactor and refactored calculations
+were compared with motion preprocessing disabled, fit start 25 s and fixed windows
+`[11.149896, 12.149896]` and `[21.149896, 22.149896]`. Fitted constants, every torque
+sample, forward reconstruction and both signed cumulative torque values were identical. The
+cumulative torque values were -247.57673961727286 and 276.5888171556742 dyn·cm·s. These fixed windows
+are a numerical regression check, not confirmation of the audio event times.
+
+Actual MTS recordings and a saved ruler calibration are absent from this checkout,
+so real video decoding, laser tracking, audio cue quality, interactive calibration
+and playback require verification with the experiment recordings.
 
 ## Mathematical Details of Method 
 

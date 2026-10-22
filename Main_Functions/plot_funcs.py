@@ -66,10 +66,17 @@ def plot_franken(franken_t, franken_y, full_t, index, t_end):
     plt.title('Plot of Data Used to Find Torque Signal')
     # plt.show()
 
-def plot_torque(time, signal):
+def plot_torque(time, signal, *, ax=None, label=None):
+    """Plot torque on a new figure or a supplied group-comparison axis.
+
+    A trial label enables the axis color cycle for distinct overlaid curves;
+    calls without a label retain the original single-trial pink styling.
+    """
     signal = np.real(signal)
-    plt.figure()
-    plt.plot(time, signal, color='hotpink')
+    if ax is None:
+        _, ax = plt.subplots()
+    ax.plot(time, signal, label=label, **({'color': 'hotpink'} if label is None else {}))
+    plt.sca(ax)
     plt.xlabel('time, seconds')
     plt.ylabel(r'Torque, dyn $\cdot$ cm')
     plt.title('Extracted Torque Signal from Angular Data')
@@ -86,9 +93,16 @@ def plot_phi_gen(full_t, full_y, phi_gen):
     plt.title('Plot of Angular Data Produced by Extracted Torque Signal')
     plt.tight_layout()
 
-def plot_torque_int(new_t, cummInt):
-    plt.figure()
-    plt.plot(new_t, cummInt, color='hotpink')
+def plot_torque_int(new_t, cummInt, *, ax=None, label=None):
+    """Plot a cumulative torque integral, optionally alongside other trials.
+
+    The caller supplies timestamps and cumulative values, so this helper only
+    draws them; it does not shift times or choose impulse integration bounds.
+    """
+    if ax is None:
+        _, ax = plt.subplots()
+    ax.plot(new_t, cummInt, label=label, **({'color': 'hotpink'} if label is None else {}))
+    plt.sca(ax)
     plt.xlabel('time, seconds')
-    plt.ylabel('Integral of Torque (dyn·cm·s)')
-    plt.title('Cummulative Integral of Torque Signal')
+    plt.ylabel('Cumulative torque (dyn·cm·s)')
+    plt.title('Cumulative torque')
