@@ -191,6 +191,73 @@ overlay videos, or individual overlay JPEGs under the configured data folder.
 Older example data and jump CSVs in `Data_Generation/data` are not selected as
 results; Python requires the configured trial's valid metadata from generation.
 
+## Global integral plots versus Reynolds number
+
+After generating the group summaries, run:
+
+```bash
+python plot_reynolds_summary.py --direction r
+python plot_reynolds_summary.py --direction r --no-show
+python plot_reynolds_summary.py --config path/to/config.json --direction f --no-show
+```
+
+The command uses the same default configuration and config-relative path
+resolution as `main.load_config`. It reads only the configured groups' existing
+`jump_summary.csv` files and selects the configured trial IDs for the requested
+direction. It does not rerun fitting, open selection pickers, update metadata or
+rewrite per-group results. **Regenerate summaries with `main.py` after changing
+analysis inputs, physical constants or saved selections**; this plotting command
+cannot detect stale summaries from those changes.
+
+Three separate figures are saved at 300 dpi under
+`{configured output path}/global/{direction}/` (default `results/global/r/`):
+
+| File | Signed value per paired trial (dyn·cm·s) |
+| --- | --- |
+| `startup_vs_reynolds.png` | Startup `J_measured_dyn_cm_s` |
+| `shutdown_vs_reynolds.png` | Shutdown `J_measured_dyn_cm_s` |
+| `mismatch_vs_reynolds.png` | **Startup + shutdown imbalance:** `J_start + J_stop` |
+
+The imbalance is the signed sum of the two event integrals, matching the lower
+panel in `main.plot_jump_comparison`. It is neither the percentage magnitude
+mismatch nor an integral between the events. Reverse-flow startup remains
+negative and shutdown positive; directions are never pooled and no absolute
+values are taken.
+
+Each numeric Reynolds-number cluster shows individual trials, their unweighted
+arithmetic mean as a larger orange dot, and a distinct marker for the stored
+theoretical prediction. All markers are partially transparent to reveal overlap.
+Only means receive percentage labels. Startup and shutdown use relative error,
+`100 * abs(mean - theory) / abs(theory)`, rather than averaging individual trial
+errors. These labels show `Error N/A` for missing, inconsistent or zero theory.
+The imbalance plot instead labels the **magnitude mismatch of the mean event
+integrals**, `100 * abs(abs(mean_start) - abs(mean_stop)) /
+max(abs(mean_start), abs(mean_stop))`. This uses the same definition as the
+per-trial `Mismatch` labels in `cumulative_jump_comparison.png`, applied to the
+group's mean startup and shutdown, rather than averaging the trial percentages.
+It is independent of theory, and is undefined only when both mean event integrals
+are zero (`Mismatch N/A`). The imbalance y-values remain signed `J_start + J_stop`
+in dyn·cm·s; the percentage is only a label.
+The imbalance theory uses paired stored startup-plus-shutdown predictions
+(zero for the implemented model). Missing or inconsistent theory is reported
+and its marker omitted; valid measurements and means remain. Available theory
+must agree within a group (roundoff tolerance `rtol=1e-10`, `atol=1e-12`), and
+predictions are never averaged. There are no uncertainty ranges, error bars,
+regression lines or connections between trial points in these global figures.
+
+Events are paired by exact `run_identity` and event name, independent of row
+order. Malformed identities, wrong directions, nonfinite measurements, duplicate
+or incomplete event pairs and deselected trials are reported and excluded;
+missing groups are reported and skipped. All three figures use the same valid
+trial pairs. Stored density, geometry, rotation sign and flow conversion
+(`flow_rate_cm3_s / Re` and `Q_signed_cm3_s / Re`) must be comparable across
+included trials/groups, with signed flow consistent with direction. Optional
+flow/geometry values may be uniformly unavailable; mixed known/unknown settings
+are not assumed comparable. Conflicting physical settings are reported and
+prevent combined figures. If no comparable valid data remain, only this
+command's three old figures for the requested direction are removed, and the
+command exits with status 1.
+
 ## Numerical conventions
 
 `main.py` retains Rachel Bertaud's introductory explanation and numbered analysis
@@ -239,7 +306,12 @@ and other numerical changes are deferred.
 
 The original test suite and focused batch checks exercise reconstruction/export,
 group selection, saved timing/selections, reselection and invalid-trial exclusion.
-All 42 Python tests passed with both Python 3.12/NumPy 2 and the default
+Run `python -m unittest discover -s tests -v` to include the synthetic global-plot
+checks for numeric Reynolds ordering, exact trial/mean/theory series, event
+pairing, exclusions, missing theory/groups, physical comparability and direction
+separation. Plot-artist checks also verify that no uncertainty ranges appear.
+The current 59-test suite passes in the default Python 3.9 environment. The
+earlier 42-test suite passed with both Python 3.12/NumPy 2 and the default
 Python 3.9/NumPy 1.23.5 environment, including shared group/repeat expansion
 and invalid configuration checks. MATLAB R2026a syntax
 checks and synthetic AVI/JPEG/WAV checks also passed: extraction completion and
