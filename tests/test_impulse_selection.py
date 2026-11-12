@@ -18,7 +18,7 @@ class ImpulseSelectionTests(unittest.TestCase):
         self.torque = np.full_like(self.time, 2.)
         self.defaults = ((11., 12.), (21., 22.))
 
-    def pick(self, actions):
+    def pick(self, actions, view_windows=((9, 13), (19, 23))):
         def interact(*, block):
             self.assertTrue(block)
             fig = plt.gcf()
@@ -32,7 +32,10 @@ class ImpulseSelectionTests(unittest.TestCase):
                 )
                 self.assertEqual(ax.get_ylabel(), "Extracted torque (dyn*cm)")
             for action in actions:
-                if action[0] == "key":
+                if action[0] == "open":
+                    self.assertTrue(plt.fignum_exists(fig.number))
+                    continue
+                elif action[0] == "key":
                     event = KeyEvent("key_press_event", fig.canvas, key=action[1])
                 else:
                     _, panel, time = action
@@ -46,7 +49,7 @@ class ImpulseSelectionTests(unittest.TestCase):
         with patch.object(plt, "show", side_effect=interact):
             return select_impulse_windows(
                 self.time, self.torque, *self.defaults,
-                view_windows=((9, 13), (19, 23)),
+                view_windows=view_windows,
             )
 
     def assertWindowsEqual(self, actual, expected):
@@ -95,6 +98,49 @@ class ImpulseSelectionTests(unittest.TestCase):
             ("click", 0, 9.5), ("click", 0, 12.5), ("click", 0, 10),
         ])
         self.assertWindowsEqual(windows, self.defaults)
+
+    def test_invalid_suggestions_can_be_replaced(self):
+        for defaults in (
+            ((-5, 2), (29, 35)),
+            ((9, 23), (19, 22)),
+            ((12, 11), (21, 21)),
+            ((np.nan, 12), (21, np.inf)),
+        ):
+            with self.subTest(defaults=defaults):
+                self.defaults = defaults
+                # Repair shutdown first even when it overlaps the uncorrected
+                # startup suggestion. Final acceptance still needs both valid.
+                windows = self.pick([
+                    ("click", 1, 19.5), ("click", 1, 22.5),
+                    ("click", 0, 9.5), ("click", 0, 12.5), ("key", "enter"),
+                ], view_windows=None)
+                self.assertWindowsEqual(windows, ((9.5, 12.5), (19.5, 22.5)))
+
+    def test_valid_suggestion_can_be_retained_while_other_is_repaired(self):
+        self.defaults = ((11., 12.), (29., 35.))
+        windows = self.pick([("click", 1, 20), ("click", 1, 23)])
+        self.assertWindowsEqual(windows, ((11., 12.), (20., 23.)))
+
+    def test_invalid_suggestions_without_valid_replacements_raise(self):
+        for defaults in (((-5, 2), (29, 35)), ((9, 23), (19, 22))):
+            for actions in ([], [("click", 0, 10)], [("key", "enter")], [
+                ("click", 0, 9.5), ("click", 0, 12.5),
+                ("click", 1, 19.5), ("click", 1, 22.5), ("key", "escape"),
+            ]):
+                with self.subTest(defaults=defaults, actions=actions):
+                    self.defaults = defaults
+                    with self.assertRaisesRegex(ValueError, 'integration window'):
+                        self.pick(actions)
+                    self.assertEqual(plt.get_fignums(), [])
+
+    def test_invalid_done_keeps_picker_open_for_repair(self):
+        self.defaults = ((-5, 2), (29, 35))
+        windows = self.pick([
+            ("key", "enter"), ("open",),
+            ("click", 0, 9.5), ("click", 0, 12.5),
+            ("click", 1, 19.5), ("click", 1, 22.5), ("key", "enter"),
+        ], view_windows=((40, 50), (40, 50)))
+        self.assertWindowsEqual(windows, ((9.5, 12.5), (19.5, 22.5)))
 
 
 if __name__ == "__main__":

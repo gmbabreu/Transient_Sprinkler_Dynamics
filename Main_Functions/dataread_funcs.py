@@ -20,18 +20,21 @@ def read_data(fname):
 
     return full_t, full_phi, N, t_peaks, phi_peaks
 
-def plot_data(t_data, phi_data, flag):
+def plot_data(t_data, phi_data, flag, *, initial_time=None):
+    # Reopen at the latest saved fit selection; first-time callers start at t[0].
+    if initial_time is None:
+        initial_time = t_data[0]
     # defines figure
     fig, ax = plt.subplots()
     plt.subplots_adjust(bottom=0.25)
 
     # plots data
     line, = ax.plot(t_data, phi_data, 'o-',color='pink')
-    vline = ax.axvline(x=t_data[0], color='purple', linestyle='--')
+    vline = ax.axvline(x=initial_time, color='purple', linestyle='--')
 
     # add slider
     ax_slider = plt.axes([0.2, 0.08, 0.6, 0.03])
-    slider = Slider(ax_slider, 'Time of Choice', t_data.min(), t_data.max(), valinit=t_data[0], color="purple")
+    slider = Slider(ax_slider, 'Time of Choice', t_data.min(), t_data.max(), valinit=initial_time, color="purple")
 
     def update(val):
         vline.set_xdata([slider.val, slider.val])

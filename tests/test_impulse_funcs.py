@@ -10,12 +10,27 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 from Main_Functions.impulse_funcs import (
-    analyze_impulses, integrate_impulse, report_impulses,
+    analyze_impulses, integrate_impulse, report_impulses, relative_error_metrics,
     save_impulse_summary, mark_impulse_windows, plot_impulse_diagnostics,
 )
 
 
 class ImpulseTests(unittest.TestCase):
+    def test_relative_error_metrics_preserve_sign_and_handle_undefined_values(self):
+        rows = [dict(event='startup', J_measured_dyn_cm_s=-80.,
+                     J_theory_dyn_cm_s=-100., residual_dyn_cm_s=20.),
+                dict(event='shutdown', J_measured_dyn_cm_s=120.,
+                     J_theory_dyn_cm_s=100., residual_dyn_cm_s=20.)]
+        metrics = relative_error_metrics(rows)
+        self.assertEqual(metrics['startup_relative_error_pct'], 20.)
+        self.assertEqual(metrics['shutdown_relative_error_pct'], 20.)
+        self.assertAlmostEqual(metrics['relative_magnitude_mismatch_pct'], 100/3)
+        rows[0].update(J_measured_dyn_cm_s=80., residual_dyn_cm_s=180.)
+        self.assertEqual(relative_error_metrics(rows)['startup_relative_error_pct'], 180.)
+        rows[0].update(J_theory_dyn_cm_s=None, J_measured_dyn_cm_s=0.)
+        rows[1].update(J_theory_dyn_cm_s=0., J_measured_dyn_cm_s=0.)
+        self.assertTrue(all(value is None for value in relative_error_metrics(rows).values()))
+
     def setUp(self):
         self.t = np.arange(0., 30.01, .125)
         # Triangular pulses with signed areas +6 and -6 on a constant background.
@@ -62,6 +77,26 @@ class ImpulseTests(unittest.TestCase):
             self.assertAlmostEqual(ax.lines[0].get_ydata()[-1], row['J_measured_dyn_cm_s'])
         plt.close(fig)
 
+    def test_window_markings_follow_plot_offset_without_changing_results(self):
+        rows = self.analyze()
+        original = [dict(row) for row in rows]
+        fig, ax = plt.subplots()
+        try:
+            mark_impulse_windows(ax, rows, time_offset_s=9., trial_id='1000r1')
+            self.assertEqual(len(ax.patches), 2)
+            for span, row in zip(ax.patches, rows):
+                # Polygon and Rectangle spans differ by Matplotlib version;
+                # transform their vertices back to the displayed data axis.
+                vertices = ax.transData.inverted().transform(
+                    span.get_transform().transform(span.get_path().vertices))
+                np.testing.assert_allclose(
+                    [vertices[:, 0].min(), vertices[:, 0].max()],
+                    [row['window_start_s'] - 9., row['window_end_s'] - 9.])
+                self.assertIn('1000r1', span.get_label())
+            self.assertEqual(rows, original)
+        finally:
+            plt.close(fig)
+
     def test_theory_signs_and_zero(self):
         for direction, flow_sign in [('f', 1), ('r', -1)]:
             for convention in (-1, 1):
@@ -75,6 +110,25 @@ class ImpulseTests(unittest.TestCase):
         for row in self.analyze(flow_rate_cm3_s=2, geometry_factor_cm2=0):
             self.assertEqual(row['J_theory_dyn_cm_s'], 0)
             self.assertIsNone(row['measured_over_theory'])
+
+    def test_report_relative_error_percentage(self):
+        base_row = self.analyze()[0]
+        for measured, theory, expected in (
+            (-120., -100., '20.00%'),
+            (-80., -100., '20.00%'),
+            (100., -100., '200.00%'),
+            (-100., -100., '0.00%'),
+            (-120., 0., 'undefined (zero theoretical cumulative torque)'),
+        ):
+            with self.subTest(measured=measured, theory=theory):
+                row = dict(base_row, J_measured_dyn_cm_s=measured,
+                           J_theory_dyn_cm_s=theory, residual_dyn_cm_s=measured-theory)
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    report_impulses([row])
+                self.assertIn(f'relative error = {expected}', output.getvalue())
+                self.assertNotIn('  residual   =', output.getvalue())
+                self.assertNotIn('  measured/theory =', output.getvalue())
 
     def test_invalid_inputs(self):
         for t in ([0, 0, 1], [0, 2, 1], [0, float('nan'), 2]):
@@ -95,10 +149,34 @@ class ImpulseTests(unittest.TestCase):
         rows = self.analyze(shutdown_window=(21, 23))
         self.assertAlmostEqual(rows[1]['J_measured_dyn_cm_s'], 6.)
 
+    def test_sensitivity_reports_contraction_before_expansion(self):
+        rows = analyze_impulses(self.t, np.full_like(self.t, -2.), self.t,
+                                startup_window=(9., 12.), shutdown_window=(19., 22.))
+        for row in rows:
+            self.assertEqual(row['sensitivity_contracted_dyn_cm_s'], -5.)
+            self.assertEqual(row['sensitivity_expanded_dyn_cm_s'], -7.)
+            # The plotted range still uses numerical minimum/maximum.
+            self.assertEqual(row['sensitivity_min_dyn_cm_s'], -7.)
+            self.assertEqual(row['sensitivity_max_dyn_cm_s'], -5.)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            report_impulses(rows)
+        self.assertEqual(output.getvalue().count(
+            'window sensitivity (contracted, expanded) = [-5, -7]'), 2)
+
     def test_sensitivity_filters_invalid_variants(self):
+        rows = self.analyze()
+        self.assertEqual(rows[0]['sensitivity_windows_s'], '9.28:11.82; 9.03:12.07; 8.78:12.32')
         rows = self.analyze(startup_window=(9.9, 19.0), shutdown_window=(19.1, 20.1))
-        self.assertEqual(rows[0]['sensitivity_windows_s'], '10.4:18.5; 10.15:18.75; 9.9:19')
+        self.assertEqual(rows[0]['sensitivity_windows_s'], '10.15:18.75; 9.9:19')
         self.assertEqual(rows[1]['sensitivity_windows_s'], '19.35:19.85; 19.1:20.1')
+        self.assertIsNone(rows[0]['sensitivity_expanded_dyn_cm_s'])
+        rows = self.analyze(startup_window=(9.9, 10.2))
+        self.assertIsNone(rows[0]['sensitivity_contracted_dyn_cm_s'])
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            report_impulses(rows)
+        self.assertIn('window sensitivity (contracted, expanded) = [unavailable, ', output.getvalue())
 
 
 if __name__ == '__main__':

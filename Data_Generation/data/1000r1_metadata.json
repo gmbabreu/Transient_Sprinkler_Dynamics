@@ -1,0 +1,25 @@
+{
+  "valid": true,
+  "failure_reason": "",
+  "invalid_frames": [],
+  "audio_candidates_s": {
+    "startup": 10.6328125,
+    "shutdown": 20.446895833333333
+  },
+  "manual_event_times_s": {
+    "startup": [],
+    "shutdown": []
+  },
+  "fit_start_s": 20.865593012152786,
+  "integration_windows_s": {
+    "startup": [
+      10.414430395129038,
+      11.051557354821508
+    ],
+    "shutdown": [
+      20.354725955022744,
+      21.006894959417274
+    ]
+  },
+  "notes": "Temporary metadata for testing Python with the existing angle CSV. Times and selections reproduce the earlier numerical comparison; audio event times are placeholders, not verified detections. MATLAB generation has not validated this trial."
+}
