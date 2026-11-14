@@ -165,7 +165,43 @@ trial you want to keep before deliberately regenerating it. Incomplete extractio
 folders can be retried, but replacing existing trial data still requires the
 allowlist. Run ingestion and migration serially.
 
-The existing YCbCr laser thresholds are unchanged and editable under `video.laser_ycbcr_limits`.
+To inspect red-dot tracking, enable `video.masked_video` and/or
+`video.overlay_video`. Generation saves `{trial}_maskedData.avi` and
+`{trial}_overlayData.avi` under `paths.data/{group}/`, using Motion JPEG AVI
+for Linux compatibility. The masked video shows every pixel accepted by the
+color thresholds; the overlay circle marks their brightness-weighted centroid.
+Background pixels passing the mask can therefore shift the tracked position.
+For frame-by-frame inspection, enable `video.overlay_frames` to save JPEGs as well.
+Completed trials are skipped unless listed in `video.regenerate_trials`.
+
+To set color limits visually instead of editing numbers, run:
+
+```matlab
+addpath('Data_Generation/calibration')
+calibrateLaserMask
+```
+
+It uses the same reference image selected for ruler calibration. At startup,
+choose **Preview current** to compare the original image with the mask produced
+by the saved JSON limits, or **Calibrate** to select a new sample. The current
+preview does not change settings; choose **Calibrate** to continue or **Close**
+to finish.
+
+When calibrating, click near the laser to zoom in, then drag/resize the sample
+circle around the dot and double-click. Inspect the proposed mask, then choose
+**Save**, **Pick again**, or **Cancel**. Save updates only
+`video.laser_ycbcr_limits` in `experiment_config.json`; it does not regenerate data.
+An alternative image/configuration can be supplied as
+`calibrateLaserMask('experiment_config.json', '/path/to/frame.jpg')`.
+
+The suggested limits separate red chroma from the surrounding background and leave
+brightness unrestricted to tolerate modest exposure changes. Reuse them for a
+similar camera/lighting setup; check the diagnostic videos across the recording.
+A single frame cannot guarantee separation from other red objects or changing
+colored illumination. Recalibrate the mask when that setup changes, then explicitly
+regenerate affected trials using `video.regenerate_trials`.
+
+The YCbCr limits remain editable under `video.laser_ycbcr_limits`.
 [`Data_Generation/ycbcrMask.m`](Data_Generation/ycbcrMask.m) applies these limits
 when isolating the laser in each frame.
 Spring calibration is a different physical setup: its geometry and measured
@@ -190,6 +226,16 @@ Each `data/{group}/{trial}_metadata.json` contains:
 - `manual_event_times_s`: optional `startup` and `shutdown` corrections in original video seconds.
 - `fit_start_s`: selected free-decay start in original seconds.
 - `integration_windows_s`: selected `startup` and `shutdown` pairs in original seconds.
+
+If the suggested close-ups miss the events, click **Full recording** in the
+interval picker. In each event's panel, click two endpoints around the region
+you want to inspect. That panel zooms into the selected range, replacing its
+previous close-up. **These overview clicks only change the view.** Then click
+the actual integration endpoints inside each close-up and choose **Done**.
+**Close-ups** exits the overview without changing integration selections. Turn
+off toolbar zoom/pan before picking endpoints.
+To replace intervals already saved in metadata, run `python main.py 500 f --reselect`
+(with your desired Reynolds number/direction). This also reopens the fit-start picker.
 
 The picker can repair invalid suggested windows. Accepting requires two
 positive-duration, nonoverlapping windows inside the recording. Incomplete
@@ -248,7 +294,7 @@ and removes stale analysis products for failed trials. Results retain their
 existing names and layout under `results/{group}/`.
 
 Generated data uses `paths.data/{group}/{trial}_data.csv` and
-`{trial}_metadata.json`. Optional masked/overlay MP4s and overlay-frame folders
+`{trial}_metadata.json`. Optional masked/overlay AVI videos and overlay-frame folders
 use that same group directory. Extracted frames use
 `paths.frames/{group}/{trial}_frames/`, including when `paths.frames` is on an
 external drive. For example:

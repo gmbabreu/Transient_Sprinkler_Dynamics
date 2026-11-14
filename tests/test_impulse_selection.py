@@ -18,7 +18,7 @@ class ImpulseSelectionTests(unittest.TestCase):
         self.torque = np.full_like(self.time, 2.)
         self.defaults = ((11., 12.), (21., 22.))
 
-    def pick(self, actions, view_windows=((9, 13), (19, 23))):
+    def pick(self, actions, view_windows=((9, 13), (19, 23)), *, expand_view=True):
         def interact(*, block):
             self.assertTrue(block)
             fig = plt.gcf()
@@ -35,12 +35,27 @@ class ImpulseSelectionTests(unittest.TestCase):
                 if action[0] == "open":
                     self.assertTrue(plt.fignum_exists(fig.number))
                     continue
+                elif action[0] == "button":
+                    button_ax = next(ax for ax in fig.axes
+                                     if any(text.get_text() == action[1] for text in ax.texts))
+                    x, y = button_ax.transAxes.transform((.5, .5))
+                    for name in ("button_press_event", "button_release_event"):
+                        event = MouseEvent(name, fig.canvas, x, y, button=1)
+                        fig.canvas.callbacks.process(event.name, event)
+                    continue
+                elif action[0] == "view":
+                    shown_axes = fig.axes[:2] if len(action) == 2 else [fig.axes[action[2]]]
+                    for ax in shown_axes:
+                        np.testing.assert_allclose(ax.get_xlim(), action[1])
+                        np.testing.assert_allclose(ax.lines[0].get_xdata()[[0, -1]], action[1])
+                    continue
                 elif action[0] == "key":
                     event = KeyEvent("key_press_event", fig.canvas, key=action[1])
                 else:
                     _, panel, time = action
                     ax = fig.axes[panel]
-                    ax.set_xlim(0, 30)
+                    if expand_view:
+                        ax.set_xlim(0, 30)
                     x_pixel, y_pixel = ax.transData.transform((time, np.mean(ax.get_ylim())))
                     event = MouseEvent("button_press_event", fig.canvas,
                                        x_pixel, y_pixel, button=1)
@@ -54,6 +69,31 @@ class ImpulseSelectionTests(unittest.TestCase):
 
     def assertWindowsEqual(self, actual, expected):
         np.testing.assert_allclose(actual, expected, rtol=0, atol=1e-12)
+
+    def test_overview_selects_closeups_before_integration_endpoints(self):
+        windows = self.pick([
+            ("button", "Full recording"), ("view", (0, 30)),
+            ("click", 0, 0), ("click", 0, 8), ("view", (0, 8), 0),
+            ("click", 0, 2), ("click", 0, 4),
+            ("click", 1, 24), ("click", 1, 29.5), ("view", (24, 29.5), 1),
+            ("click", 1, 25), ("click", 1, 28), ("key", "enter"),
+        ], expand_view=False)
+        self.assertWindowsEqual(windows, ((2, 4), (25, 28)))
+
+    def test_zoom_range_selection_does_not_replace_integration_windows(self):
+        windows = self.pick([
+            ("button", "Full recording"),
+            ("click", 0, 1), ("click", 0, 6), ("view", (1, 6), 0),
+            ("click", 1, 24), ("click", 1, 29), ("view", (24, 29), 1),
+        ], expand_view=False)
+        self.assertWindowsEqual(windows, self.defaults)
+
+    def test_switching_views_preserves_suggestions(self):
+        windows = self.pick([
+            ("button", "Full recording"), ("view", (0, 30)),
+            ("button", "Close-ups"), ("view", (9, 23)),
+        ], view_windows=((9, 23), (9, 23)), expand_view=False)
+        self.assertWindowsEqual(windows, self.defaults)
 
     def test_close_without_clicks_and_incomplete_pairs_keep_sound_windows(self):
         self.assertWindowsEqual(self.pick([]), self.defaults)

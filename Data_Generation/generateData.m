@@ -86,15 +86,15 @@ for trialIndex = 1:numel(config.ingestion_trials)
         t = (0:count-1)' / fps;
         x0 = NaN;
 
-        % Save videos.
+        % Motion JPEG AVI is supported on Linux as well as Windows/macOS.
         if config.video.masked_video
-            V = VideoWriter(trialPath(config.paths.data, file, "_maskedData.mp4"), 'MPEG-4');
+            V = VideoWriter(trialPath(config.paths.data, file, "_maskedData.avi"), 'Motion JPEG AVI');
             V.FrameRate = fps;
             V.Quality = 95;
             open(V);
         end
         if config.video.overlay_video
-            overlayV = VideoWriter(trialPath(config.paths.data, file, "_overlayData.mp4"), 'MPEG-4');
+            overlayV = VideoWriter(trialPath(config.paths.data, file, "_overlayData.avi"), 'Motion JPEG AVI');
             overlayV.FrameRate = fps;
             overlayV.Quality = 95;
             open(overlayV);

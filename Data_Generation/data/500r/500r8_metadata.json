@@ -3,10 +3,16 @@
     "startup": [],
     "shutdown": []
   },
-  "fit_start_s": [],
+  "fit_start_s": 22.859121006944456,
   "integration_windows_s": {
-    "startup": [],
-    "shutdown": []
+    "startup": [
+      12.550830645161291,
+      13.085024193548387
+    ],
+    "shutdown": [
+      22.480090420332356,
+      23.03047165200391
+    ]
   },
   "valid": true,
   "invalid_frames": [],

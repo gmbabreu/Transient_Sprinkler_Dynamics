@@ -468,7 +468,7 @@ def mark_impulse_windows(ax, results, *, time_offset_s=0.0, trial_id=None):
 def select_impulse_windows(
     time_s, torque_dyn_cm, startup_window, shutdown_window, *, view_windows=None
 ):
-    """Pick two endpoints per event on extracted torque close-ups.
+    """Pick integration endpoints in close-ups; use the overview to replace views.
 
     Close the figure, press Enter, or click Done to accept completed pairs.
     Events with no complete pair retain a valid supplied window. Invalid
@@ -504,13 +504,16 @@ def select_impulse_windows(
     fig.suptitle(
         "Extracted torque: click two interval endpoints in each panel (either order).\n"
         "Done / Enter / close: accept valid windows; invalid suggestions need correction.\n"
-        "Reset / Escape: restore suggestions. Turn off zoom/pan to pick.",
+        "Full recording: select new close-up ranges first. Turn off zoom/pan to pick.\n"
+        "Reset / Escape: restore suggestions.",
         fontsize=10,
     )
     names = ("Startup", "Shutdown")
     colors = ("tab:blue", "tab:orange")
     chosen = list(defaults)
     pending = [None, None]
+    overview = [False, False]
+    view_pending = [None, None]
     manual = [False, False]
     markers = [[], []]
     status = fig.text(0.05, 0.14, "", fontsize=9)
@@ -524,6 +527,7 @@ def select_impulse_windows(
             raise ValueError("Startup and shutdown integration windows must not overlap.")
         return tuple(chosen)
 
+    contexts, curves = [], []
     for i, (ax, view) in enumerate(zip(axes, view_windows)):
         # Only the displayed context may be clipped to the recording. This
         # never changes a suggested or selected integration bound.
@@ -534,17 +538,31 @@ def select_impulse_windows(
         except ValueError:
             context = (time_s[0], time_s[-1])
         local_time, local_torque = window_samples(time_s, torque_dyn_cm, context)
-        ax.plot(local_time, local_torque, color="hotpink")
+        curves.append(ax.plot(local_time, local_torque, color="hotpink")[0])
+        contexts.append(context)
         ax.set(xlim=context, xlabel="Experimental time (s)",
                ylabel="Extracted torque (dyn*cm)")
         ax.grid(alpha=0.25)
+
+    def show_view(i):
+        context = (time_s[0], time_s[-1]) if overview[i] else contexts[i]
+        shown_time, shown_torque = window_samples(time_s, torque_dyn_cm, context)
+        curves[i].set_data(shown_time, shown_torque)
+        axes[i].set_xlim(context)
+        axes[i].relim()
+        axes[i].autoscale(enable=True, axis="y")
+        view_button.label.set_text("Close-ups" if any(overview) else "Full recording")
 
     def redraw(message=""):
         for i, ax in enumerate(axes):
             for artist in markers[i]:
                 artist.remove()
             markers[i] = []
-            if chosen[i] is None:
+            if overview[i]:
+                ax.set_title(f"{names[i]}: select two zoom-range endpoints")
+                if view_pending[i] is not None:
+                    markers[i].append(ax.axvline(view_pending[i], color=colors[i]))
+            elif chosen[i] is None:
                 ax.set_title(f"{names[i]}: select a valid integration window")
             else:
                 a, b = chosen[i]
@@ -573,6 +591,21 @@ def select_impulse_windows(
         i = list(axes).index(event.inaxes)
         endpoint = float(event.xdata)
         if not np.isfinite(endpoint) or not time_s[0] <= endpoint <= time_s[-1]:
+            return
+        if overview[i]:
+            if view_pending[i] is None:
+                view_pending[i] = endpoint
+                redraw(f"{names[i]}: click the other end of the range to zoom into.")
+                return
+            try:
+                context = validate_window(time_s, tuple(sorted((view_pending[i], endpoint))))
+            except ValueError as error:
+                redraw(str(error))
+                return
+            contexts[i] = context
+            overview[i], view_pending[i] = False, None
+            show_view(i)
+            redraw(f"{names[i]}: new close-up set. Now click the integration endpoints in this panel.")
             return
         if pending[i] is None:
             # Keep the existing fallback behavior when suggestions are valid.
@@ -603,6 +636,7 @@ def select_impulse_windows(
     def reset(event=None):
         chosen[:] = defaults
         pending[:] = [None, None]
+        view_pending[:] = [None, None]
         manual[:] = [False, False]
         redraw()
 
@@ -621,6 +655,16 @@ def select_impulse_windows(
             reset()
             plt.close(fig)
 
+    def toggle_view(event=None):
+        overview[:] = [not any(overview)] * 2
+        view_pending[:] = [None, None]
+        pending[:] = [None, None]
+        for i in range(2):
+            show_view(i)
+        redraw("Select a range in each panel to replace its close-up." if any(overview) else "")
+
+    view_button = Button(fig.add_axes([0.05, 0.04, 0.24, 0.06]), "Full recording")
+    view_button.on_clicked(toggle_view)
     reset_button = Button(fig.add_axes([0.61, 0.04, 0.16, 0.06]), "Reset selections")
     done_button = Button(fig.add_axes([0.79, 0.04, 0.16, 0.06]), "Done")
     reset_button.on_clicked(reset)

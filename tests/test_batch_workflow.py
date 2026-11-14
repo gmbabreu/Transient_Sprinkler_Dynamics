@@ -106,13 +106,15 @@ class BatchWorkflowTests(unittest.TestCase):
         self.assertEqual({p:p.read_bytes() for p in before}, before)
 
     def test_migration_dry_run_grouping_and_idempotency(self):
+        (self.root/'1000r1_maskedData.avi').write_bytes(b'AVI diagnostic')
+        (self.root/'1000r1_overlayData.mp4').write_bytes(b'legacy MP4 diagnostic')
         before = {p.name:p.read_bytes() for p in self.root.glob('1000r1*')}
         frames = self.root/'frames/1000r1_frames'
         frames.mkdir(parents=True)
         (frames/'.complete').write_text('1 50\n')
         self.config['paths']['frames'] = frames.parent
         with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(len(main.migrate_storage(self.config)), 2)
+            self.assertEqual(len(main.migrate_storage(self.config)), 4)
             self.assertTrue((self.root/'1000r1_data.csv').exists())
             main.migrate_storage(self.config, apply=True)
             self.assertTrue(frames.exists())

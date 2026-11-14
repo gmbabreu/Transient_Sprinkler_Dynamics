@@ -511,7 +511,7 @@ def run_group(config, reynolds, direction, *, reselect=False, interactive=True, 
 
 def migrate_storage(config, *, apply=False, include_frames=False):
     """Move legacy generated artifacts into groups; dry run unless apply=True."""
-    generated = r'([1-9]\d*[fr][1-9]\d*)(_data\.csv|_metadata\.json|_maskedData\.mp4|_overlayData\.mp4|_overlayFrames)'
+    generated = r'([1-9]\d*[fr][1-9]\d*)(_data\.csv|_metadata\.json|_maskedData\.(?:mp4|avi)|_overlayData\.(?:mp4|avi)|_overlayFrames)'
     roots = [(config['paths']['data'], generated)]
     if include_frames:
         roots.append((config['paths']['frames'], r'([1-9]\d*[fr][1-9]\d*)_frames'))

@@ -8,9 +8,9 @@
     "ruler_calibration": "Data_Generation/calibration/frame_rulerCalibration.mat"
   },
   "trial_ranges": {
-    "500r": [1, 10],
-    "500f": [1, 1],
-    "1000r": [5, 9],
+    "500r": [],
+    "500f": [],
+    "1000r": [8,8],
     "1000f": [],
     "1500r": [],
     "1500f": []
@@ -22,11 +22,11 @@
     "extension": ".MTS",
     "mirror_distance_inches": 48,
     "regenerate_frames": false,
-    "regenerate_trials": [],
+    "regenerate_trials": ["1000r8"],
     "masked_video": false,
     "overlay_video": false,
     "overlay_frames": false,
-    "laser_ycbcr_limits": [[100, 230], [95, 125], [145, 210]],
+    "laser_ycbcr_limits": [[0,255],[0,255],[161,255]],
     "circle_radius_pixels": 8,
     "circle_thickness_pixels": 2
   },
