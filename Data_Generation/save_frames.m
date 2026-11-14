@@ -1,5 +1,4 @@
-% Extract the configured groups/repeats before calibration/data generation.
-% loadBatchConfig expands trial_groups and trials_per_group into full trial IDs.
+% Extract only the explicit ingestion ranges before data generation.
 % Each folder contains numbered JPEGs plus a .complete marker with frame count
 % and frame rate. Set video.regenerate_frames in experiment_config.json when
 % a recording changes; the marker is a completion check, not a content hash.
@@ -10,17 +9,17 @@ clear
 % Resolve files relative to this script, independently of MATLAB's current folder.
 scriptDir = fileparts(mfilename('fullpath'));
 addpath(scriptDir);
-config = loadBatchConfig();
+[config, trialPath] = loadBatchConfig();
 
-for trialIndex = 1:numel(config.trials)
-    file = config.trials(trialIndex);
+for trialIndex = 1:numel(config.ingestion_trials)
+    file = config.ingestion_trials(trialIndex);
 
     %% GET FRAMES
     % Frame extraction takes time and only needs to be done once per trial.
-    mov_name = fullfile(config.paths.trials, file + config.video.extension);
-    saveFolder = fullfile(config.paths.frames, file + "_frames");
-    marker = fullfile(saveFolder, '.complete');
     try
+        mov_name = fullfile(config.paths.trials, file + config.video.extension);
+        saveFolder = trialPath(config.paths.frames, file, "_frames");
+        marker = fullfile(saveFolder, '.complete');
         complete = false;
         % A marker alone is insufficient: require exactly the expected JPEGs
         % as well. Missing or extra frames cause the folder to be rebuilt.
@@ -35,21 +34,29 @@ for trialIndex = 1:numel(config.trials)
         if complete && ~config.video.regenerate_frames
             fprintf('Skipping complete extraction: %s\n', file);
         else
-            assert(isfile(mov_name), 'Recording not found: %s', mov_name);
+            assert(isfile(mov_name), ['Recording not found: %s. Expected exact trial-ID filename; ' ...
+                'generic camera filenames require explicit source identification. No assignment was guessed.'], mov_name);
             % A changed extraction requires fresh tracking before Python can use it.
             % Preserve manual timing/selection fields while invalidating the
             % metadata and removing angles computed from the previous frames.
-            metadataPath = fullfile(config.paths.data, file + "_metadata.json");
+            metadataPath = trialPath(config.paths.data, file, "_metadata.json");
+            csvPath = trialPath(config.paths.data, file, "_data.csv");
+            if complete || isfile(csvPath) || isfile(metadataPath)
+                assert(any(config.video.regenerate_trials == file), ...
+                    'Existing trial %s is protected; use video.regenerate_trials.', file);
+            end
             if isfile(metadataPath)
                 metadata = jsondecode(fileread(metadataPath));
                 metadata.valid = false;
                 metadata.failure_reason = 'Frames changed; rerun generateData.m';
-                fid = fopen(metadataPath, 'w');
+                temporary = metadataPath + ".tmp";
+                fid = fopen(temporary, 'w');
                 assert(fid ~= -1, 'Cannot invalidate metadata: %s', metadataPath);
                 fprintf(fid, '%s\n', jsonencode(metadata, 'PrettyPrint', true));
                 fclose(fid);
+                [ok,message] = movefile(temporary, metadataPath, 'f');
+                assert(ok, '%s', message);
             end
-            csvPath = fullfile(config.paths.data, file + "_data.csv");
             if isfile(csvPath)
                 delete(csvPath);
             end
@@ -83,18 +90,8 @@ for trialIndex = 1:numel(config.trials)
             fclose(fid);
             fprintf('Extracted %d frames: %s\n', count, file);
         end
-        % The first trial supplies the batch reference, including on a skipped run.
-        % Never silently replace a reference used by an existing ruler calibration.
-        if trialIndex == 1 && ~isfile(config.paths.calibration_reference)
-            referenceDir = fileparts(config.paths.calibration_reference);
-            if ~isfolder(referenceDir)
-                mkdir(referenceDir);
-            end
-            copyfile(fullfile(saveFolder, '001.jpg'), config.paths.calibration_reference);
-        end
     catch err
         % A missing/unreadable recording must not prevent later trials running.
-        % Do not substitute a later trial for the first trial's batch reference.
         fprintf(2, 'FAILED %s: %s\n', file, err.message);
     end
 end

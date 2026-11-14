@@ -11,22 +11,28 @@ startup and shutdown, and compare individual trials against theory.
 
 Run these commands from the repository root.
 
-1. **Configure the batch.** Put recordings in `Data_Generation/trials/` with
-   names such as `1000f1.MTS`. Edit the groups and counts in
+1. **Configure ingestion.** Keep recordings directly under `paths.trials` on the
+   existing external drive, with exact names such as `1000r5.MTS`. Edit
    [`experiment_config.json`](experiment_config.json):
 
    ```json
-   "trial_groups": ["1000f", "1000r"],
-   "trials_per_group": [2, 3]
+   "trial_ranges": {
+     "500r": [], "500f": [], "1000r": [5, 9],
+     "1000f": [], "1500r": [], "1500f": []
+   }
    ```
 
-   This selects `1000f1–2` and `1000r1–3`. Use a single count, such as `3`,
-   to apply it to every group. All groups must share the same camera/ruler setup.
+   Endpoints are inclusive: this ingests five recordings, `1000r5`–`1000r9`.
+   `[]` skips ingestion for that group and keeps its history available for analysis.
+   Endpoints must be positive integers in ascending order; malformed groups,
+   duplicate keys, nested arrays and invalid ranges are rejected. Separate batches
+   may leave gaps in numbering: historical IDs are never renumbered.
 
-   Videos can stay on an external drive: set `paths.trials` to its absolute
-   folder path, such as `/run/media/ga2740/CAM_SD/PRIVATE/AVCHD/BDMV/STREAM`.
-   The leading `/` matters; paths without it are relative to the JSON's folder.
-   Video filenames must still match the trial IDs, such as `1000r2.MTS`.
+   Paths without a leading `/` are relative to the configuration file. Keep
+   `paths.trials` and `paths.frames` on their configured drives. Scripts never
+   rename, move or modify original MTS files. Generic camera names such as
+   `00001.MTS` require an explicit source-identification mechanism; file ordering
+   never assigns a trial ID. The default extension remains `.MTS`.
 
 2. **Extract frames and calibrate (MATLAB).** Run extraction, then click each
    ruler mark requested at the top of the calibration window. Points stay
@@ -34,15 +40,20 @@ Run these commands from the repository root.
    point to select it (cyan): arrow keys move it 1 pixel; Shift+arrow moves it
    10 pixels. Click **Accept points** after review, or close the window to
    cancel without saving calibration parameters.
-   Each calibration refreshes the reference image from `001.jpg` of the first
-   configured trial, including when a reference image already exists.
+   Reuse an existing ruler calibration without running the calibration script.
+   For a new setup, select a **new** `paths.ruler_calibration` destination and
+   set `calibration.reference_trial` explicitly (for example `1000r1`, even if
+   its ingestion range is empty). Alternatively, omit `reference_trial` and
+   provide an image at `paths.calibration_reference`. Calibration refuses to
+   replace an existing MAT file and does not replace the reference image.
 
    ```matlab
    run('Data_Generation/save_frames.m')
    run('Data_Generation/calibration/calibrateRulerAxis.m')
    ```
 
-   Complete frame extractions and the saved calibration can be reused.
+   Run the calibration command only when creating a new calibration.
+   Completed frame extractions retain their `.complete` validation checks.
 
 3. **Generate trial data (MATLAB).**
 
@@ -50,7 +61,8 @@ Run these commands from the repository root.
    run('Data_Generation/generateData.m')
    ```
 
-   This saves angle CSVs, audio-event candidates and per-trial metadata.
+   This processes only ingestion trials, skips completed CSV/metadata pairs,
+   and saves angle CSVs, audio-event candidates and per-trial metadata.
    Use `audio.inspect` to review the cues; put corrections in the trial's
    `manual_event_times_s` metadata fields. Failed trials are reported and skipped.
 
@@ -91,18 +103,25 @@ All shared batch settings live in `experiment_config.json`:
 | Setting | Purpose |
 | --- | --- |
 | `paths` | Inputs, generated data, calibration files and group results |
-| `trial_groups`, `trials_per_group` | Groups such as `1000f`; a shared positive integer repeat count or an array with one count per group, in order |
+| `trial_ranges` | Groups such as `1000f`: inclusive `[first, last]` ingestion ranges, or `[]` |
+| `calibration.reference_trial` | Optional explicit reference trial, independent of ingestion ranges |
 | `video` | Extension, mirror distance in inches, laser YCbCr limits, extraction regeneration and tracking diagnostics |
 | `physics` | Spring stiffness, density, flow conversion, signed one-arm geometry factor and sign convention |
 | `analysis` | Existing fit switch, Chebyshev torque-filter settings and diagnostic display |
 | `audio` | Separate search intervals in **audio seconds**, audio-to-video offset, inspection and playback |
 | `integration_window_offsets_s` | Initial bounds relative to each effective event time in **video seconds** |
 
-To rebuild frames, set `video.regenerate_frames` to `true`, run extraction,
-then restore it to `false`. Incomplete folders are rebuilt automatically, with
-old generated JPEGs removed first. Extraction creates a missing calibration
-reference from the first group's repeat 1; starting calibration refreshes it
-from that trial's current first frame. Recalibrate for a new camera/ruler setup.
+To deliberately regenerate a trial, include it in its ingestion range and in
+`video.regenerate_trials`, for example `["1000r5"]`. This allowlist permits
+`generateData.m` to replace that trial's CSV. To also rebuild its frames, set
+`video.regenerate_frames` to `true`. Remove the allowlist entry and restore the
+flag afterward. Regeneration invalidates the old CSV and retains manual audio
+corrections, fit starts, integration windows and other metadata. A failed
+regeneration leaves that trial invalid; successful generation restores validity.
+Unrelated trials and group results are retained. Make a separate copy of any
+trial you want to keep before deliberately regenerating it. Incomplete extraction
+folders can be retried, but replacing existing trial data still requires the
+allowlist. Run ingestion and migration serially.
 
 The existing YCbCr laser thresholds are unchanged and editable under `video.laser_ycbcr_limits`.
 [`Data_Generation/ycbcrMask.m`](Data_Generation/ycbcrMask.m) applies these limits
@@ -122,7 +141,7 @@ Enable these settings in `experiment_config.json` and run
 and saves candidates separately from manual event corrections, as video seconds:
 `video_time = audio_time + audio_to_video_offset_s`.
 
-Each `data/{trial}_metadata.json` contains:
+Each `data/{group}/{trial}_metadata.json` contains:
 
 - `valid`, `failure_reason`, `invalid_frames`: tracking status and 1-based frame numbers.
 - `audio_candidates_s`: independently estimated `startup` and `shutdown` times.
@@ -165,7 +184,7 @@ The default group folder is `results/{Re}{direction}/`, for example `results/100
 
 | File | Contents |
 | --- | --- |
-| `angular_displacement.png` | MATLAB generation and Python analysis: one audio-aligned line per successful trial |
+| `angular_displacement.png` | Python analysis: one audio-aligned line per successful saved trial |
 | `{trial}_signal.csv` | Original timestamps and dimensional torque: `time_seconds,torque_dyn_cm` |
 | `{trial}_jumps.csv` | Separate signed startup/shutdown results, predictions and window sensitivity |
 | `jump_summary.csv` | All successful individual event rows with trial identity |
@@ -181,19 +200,57 @@ and event.
 The per-trial diagnostic figure uses original recording seconds and is saved
 even with `--no-show`; its filename is independent of figure numbering.
 
-Generation removes the affected groups' previous generated results before
-rebuilding. Analysis replaces its group products and removes stale per-trial
-analysis CSVs, including those belonging to failed or deselected trials. It
-also replaces the angular figure and removes it if the entire group fails.
-Enable `video.masked_video`,
-`video.overlay_video`, or `video.overlay_frames` to save masked videos, tracking
-overlay videos, or individual overlay JPEGs under the configured data folder.
-Older example data and jump CSVs in `Data_Generation/data` are not selected as
-results; Python requires the configured trial's valid metadata from generation.
+MATLAB generation leaves group analysis products intact. Python analysis rebuilds
+the requested group's products using every saved trial, reports failures,
+and removes stale analysis products for failed trials. Results retain their
+existing names and layout under `results/{group}/`.
+
+Generated data uses `paths.data/{group}/{trial}_data.csv` and
+`{trial}_metadata.json`. Optional masked/overlay MP4s and overlay-frame folders
+use that same group directory. Extracted frames use
+`paths.frames/{group}/{trial}_frames/`, including when `paths.frames` is on an
+external drive. Legacy flat paths remain readable; ambiguous duplicate flat and
+grouped artifacts cause a collision error. CSV columns and units are unchanged.
+
+## Existing data and migration
+
+Python discovers saved `{trial}_data.csv` / `{trial}_metadata.json` pairs in
+both flat and grouped folders. Ingestion ranges only select MATLAB preprocessing;
+Python analysis includes all saved trials, including nonconsecutive IDs.
+
+For example, if `1000r1`–`1000r4` already exist, set `"1000r": [5, 9]` and run
+extraction and generation for `1000r5`–`1000r9`. `python main.py 1000 r` then
+analyzes all nine. Setting `"1000r": []` skips new ingestion and keeps all nine
+available. Original recordings are unnecessary for Python analysis and plots.
+
+To organize existing generated files, preview and then apply the migration:
+
+```bash
+python main.py --migrate-data                         # dry run; data only
+python main.py --migrate-data --apply                 # move generated data
+python main.py --migrate-data --include-frames         # preview external frame moves
+python main.py --migrate-data --include-frames --apply
+```
+
+The command preflights destination conflicts, never overwrites destinations,
+keeps CSV/metadata bytes unchanged, and safely reruns. Frame migration requires
+`--include-frames`; no external-drive migration has been performed. Unrecognized
+legacy names and original MTS recordings are left untouched. Stop other writers
+during migration. Flat paths remain readable until migration is completed.
+
+To rebuild plots with saved selections and no connected recordings:
+
+```bash
+python main.py 1000 r --non-interactive --no-show
+python main.py 1500 r --non-interactive --no-show
+python plot_reynolds_summary.py --direction r --no-show
+```
 
 ## Global integral plots versus Reynolds number
 
-After generating the group summaries, run:
+Use the same `experiment_config.json` as generation and analysis. Global plots
+select all saved IDs for the requested direction, regardless of empty or
+new ingestion ranges. Generate group summaries first, then run:
 
 ```bash
 python plot_reynolds_summary.py --direction r
@@ -202,30 +259,33 @@ python plot_reynolds_summary.py --config path/to/config.json --direction f --no-
 ```
 
 The command uses the same default configuration and config-relative path
-resolution as `main.load_config`. It reads only the configured groups' existing
-`jump_summary.csv` files and selects the configured trial IDs for the requested
+resolution as `main.load_config`. It reads saved groups' existing
+`jump_summary.csv` files and selects saved trial IDs for the requested
 direction. It does not rerun fitting, open selection pickers, update metadata or
 rewrite per-group results. **Regenerate summaries with `main.py` after changing
 analysis inputs, physical constants or saved selections**; this plotting command
 cannot detect stale summaries from those changes.
 
-Three separate figures are saved at 300 dpi under
+Five separate figures are saved at 300 dpi under
 `{configured output path}/global/{direction}/` (default `results/global/r/`):
 
-| File | Signed value per paired trial (dyn·cm·s) |
+| File | Plotted value (dyn·cm·s) |
 | --- | --- |
 | `startup_vs_reynolds.png` | Startup `J_measured_dyn_cm_s` |
 | `shutdown_vs_reynolds.png` | Shutdown `J_measured_dyn_cm_s` |
 | `mismatch_vs_reynolds.png` | **Startup + shutdown imbalance:** `J_start + J_stop` |
+| `startup_shutdown_signed_vs_reynolds.png` | Startup and shutdown signed integrals together, with a mean for each event/group |
+| `startup_shutdown_magnitude_vs_reynolds.png` | Individual absolute integrals and the mean of absolute integrals for each event/group |
 
 The imbalance is the signed sum of the two event integrals, matching the lower
 panel in `main.plot_jump_comparison`. It is neither the percentage magnitude
 mismatch nor an integral between the events. Reverse-flow startup remains
-negative and shutdown positive; directions are never pooled and no absolute
-values are taken.
+negative and shutdown positive in the signed views; directions are never pooled.
+Only the combined magnitude view applies absolute values for visualization.
 
-Each numeric Reynolds-number cluster shows individual trials, their unweighted
-arithmetic mean as a larger orange dot, and a distinct marker for the stored
+In the original three figures, each numeric Reynolds-number cluster shows
+individual trials, their unweighted arithmetic mean as a larger orange dot,
+and a distinct marker for the stored
 theoretical prediction. All markers are partially transparent to reveal overlap.
 Only means receive percentage labels. Startup and shutdown use relative error,
 `100 * abs(mean - theory) / abs(theory)`, rather than averaging individual trial
@@ -245,17 +305,40 @@ must agree within a group (roundoff tolerance `rtol=1e-10`, `atol=1e-12`), and
 predictions are never averaged. There are no uncertainty ranges, error bars,
 regression lines or connections between trial points in these global figures.
 
+The two combined views use filled blue circles for startup and filled orange circles
+for shutdown, with larger mean markers. Partial transparency and distinct colors
+help reveal overlapping events. All trials remain at their actual Reynolds
+number. The magnitude mean is `mean(abs(J))` over the selected trials, which can
+differ from `abs(mean(J))`; the underlying signed measurements are unchanged.
+These views omit percentage annotations to keep the event series readable.
+
+In the combined signed plot, startup and shutdown each have a continuous straight
+theory line through the origin. The magnitude plot has one shared theoretical
+magnitude line. Slopes come from the validated stored predictions `J_theory / Re`,
+with the same roundoff tolerance as group predictions. Available slopes must
+agree across Reynolds groups, and startup/shutdown slopes must be equal and
+opposite. No measured-data regression or hardcoded theory coefficient is used.
+Lines span zero to the upper displayed Reynolds limit, including single-group
+plots. Missing theory omits its event line if no other group supplies a valid
+prediction; consistent available groups can supply the model slope across the
+displayed range. A shared magnitude line can use either available event.
+Inconsistent predictions suppress the affected event line and the shared
+magnitude line; failures of the equal-and-opposite check suppress both event lines.
+Diagnostics report these conflicts while retaining all valid measurements and
+means. Validation for these new lines does not alter the original three plots'
+stored-theory markers or annotations.
+
 Events are paired by exact `run_identity` and event name, independent of row
 order. Malformed identities, wrong directions, nonfinite measurements, duplicate
 or incomplete event pairs and deselected trials are reported and excluded;
-missing groups are reported and skipped. All three figures use the same valid
+missing groups are reported and skipped. All five figures use the same valid
 trial pairs. Stored density, geometry, rotation sign and flow conversion
 (`flow_rate_cm3_s / Re` and `Q_signed_cm3_s / Re`) must be comparable across
 included trials/groups, with signed flow consistent with direction. Optional
 flow/geometry values may be uniformly unavailable; mixed known/unknown settings
 are not assumed comparable. Conflicting physical settings are reported and
 prevent combined figures. If no comparable valid data remain, only this
-command's three old figures for the requested direction are removed, and the
+command's five old figures for the requested direction are removed, and the
 command exits with status 1.
 
 ## Numerical conventions
@@ -310,7 +393,10 @@ Run `python -m unittest discover -s tests -v` to include the synthetic global-pl
 checks for numeric Reynolds ordering, exact trial/mean/theory series, event
 pairing, exclusions, missing theory/groups, physical comparability and direction
 separation. Plot-artist checks also verify that no uncertainty ranges appear.
-The current 59-test suite passes in the default Python 3.9 environment. The
+The combined-plot checks also verify exact signed and magnitude series, means of
+individual magnitudes, theory slopes and symmetry, missing/inconsistent theory,
+single-group inputs, all five outputs and byte-identical original PNGs.
+The current 64-test suite passes in the default Python 3.9 environment. The
 earlier 42-test suite passed with both Python 3.12/NumPy 2 and the default
 Python 3.9/NumPy 1.23.5 environment, including shared group/repeat expansion
 and invalid configuration checks. MATLAB R2026a syntax
@@ -323,6 +409,15 @@ were compared with motion preprocessing disabled, fit start 25 s and fixed windo
 sample, forward reconstruction and both signed cumulative torque values were identical. The
 cumulative torque values were -247.57673961727286 and 276.5888171556742 dyn·cm·s. These fixed windows
 are a numerical regression check, not confirmation of the audio event times.
+
+For the storage/range change, all six existing trials (`1000r1`–`1000r4`,
+`1500r1`–`1500r2`) were recomputed from isolated copies before and after the
+change. Fitted parameters, torque arrays, cumulative integrals, event integrals,
+theoretical predictions, forward reconstruction and reconstruction errors were
+exactly equal. Torque arrays and saved event-result fields also matched the
+existing result CSVs exactly. Original data, metadata and result CSVs remained
+byte-identical. These checks validate numerical preservation for the available
+CSV inputs, including their existing saved selections.
 
 Actual MTS recordings and a saved ruler calibration are absent from this checkout,
 so real video decoding, laser tracking, audio cue quality, interactive calibration

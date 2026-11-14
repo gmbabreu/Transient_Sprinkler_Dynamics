@@ -21,6 +21,11 @@ FIGURES = {
     "shutdown": ("shutdown_vs_reynolds.png", "Shutdown integral"),
     "imbalance": ("mismatch_vs_reynolds.png", "Startup + shutdown imbalance"),
 }
+COMBINED_FIGURES = {
+    "signed": "startup_shutdown_signed_vs_reynolds.png",
+    "magnitude": "startup_shutdown_magnitude_vs_reynolds.png",
+}
+OUTPUT_FILENAMES = tuple(filename for filename, _ in FIGURES.values()) + tuple(COMBINED_FIGURES.values())
 # Compare stored conventions, allowing only floating-point roundoff. Flow is
 # normalized by Re because the configured flow conversion is shared across Re.
 PHYSICS = ("rho_g_cm3", "geometry_factor_cm2", "sign_convention",
@@ -254,6 +259,107 @@ def plot_summary(groups, direction):
     return figures
 
 
+def combined_theory_slopes(groups, report=print):
+    """Derive origin-line slopes from stored predictions, never measured data.
+
+    Missing event predictions permit a line from the remaining consistent
+    predictions. Conflicts suppress the affected event line; a shared magnitude
+    line additionally requires no conflicting predictions in either event.
+    """
+    slopes = {}
+    inconsistent = False
+    for event in EVENTS:
+        available = [(group.reynolds, group.theory[event] / group.reynolds)
+                     for group in groups if group.theory[event] is not None]
+        # A rejected group prediction is distinguishable from missing theory:
+        # it has available trial predictions, but they failed group validation.
+        rejected = [group.reynolds for group in groups if group.theory[event] is None
+                    and any(trial.theory[event] is not None for trial in group.trials)]
+        if rejected or (available and any(not agrees(value, available[0][1])
+                                         for _, value in available)):
+            report(f"Combined plots: inconsistent {event} theory slopes J_theory/Re "
+                   f"{available}; rejected group predictions at Re={rejected}. "
+                   "Omitting this theoretical line.")
+            slopes[event] = None
+            inconsistent = True
+        elif available:
+            slopes[event] = available[0][1]
+        else:
+            report(f"Combined plots: {event} theory unavailable; omitting this theoretical line.")
+            slopes[event] = None
+    asymmetric = [group.reynolds for group in groups
+                  if all(group.theory[event] is not None for event in EVENTS)
+                  and not agrees(group.theory['startup'] / group.reynolds,
+                                 -group.theory['shutdown'] / group.reynolds)]
+    if asymmetric or (all(slopes[event] is not None for event in EVENTS)
+                      and not agrees(slopes['startup'], -slopes['shutdown'])):
+        report(f"Combined plots: startup/shutdown theory slopes are not equal and opposite "
+               f"(Re={asymmetric}, slopes={slopes}); omitting theoretical lines.")
+        slopes = dict.fromkeys(EVENTS)
+        inconsistent = True
+    available = [slopes[event] for event in EVENTS if slopes[event] is not None]
+    slopes['magnitude'] = abs(available[0]) if available and not inconsistent else None
+    if inconsistent:
+        report("Combined magnitude plot: inconsistent predictions; omitting shared theory line.")
+    return slopes
+
+
+def plot_combined_summary(groups, direction, report=print):
+    """Add signed and mean-of-magnitudes views without changing stored values."""
+    groups = sorted(groups, key=lambda group: group.reynolds)
+    slopes = combined_theory_slopes(groups, report)
+    figures = {}
+    reynolds = [group.reynolds for group in groups]
+    line_x = np.array([0., max(reynolds) * 1.1])
+    for mode, filename in COMBINED_FIGURES.items():
+        fig, ax = plt.subplots(figsize=(7, 4.5))
+        for event, color, marker in (("startup", "tab:blue", "o"),
+                                     ("shutdown", "tab:orange", "o")):
+            values = [group.values(event) for group in groups]
+            if mode == 'magnitude':
+                values = [np.abs(value) for value in values]
+            style = dict(facecolors=color, edgecolors=color)
+            ax.scatter([group.reynolds for group in groups for _ in group.trials],
+                       np.concatenate(values), s=18, alpha=.5, marker=marker,
+                       label=f"{event.capitalize()} trials", zorder=3, **style)
+            ax.scatter(reynolds, [np.mean(value) for value in values],
+                       s=55, alpha=.65, marker=marker, linewidths=1.3,
+                       label=f"{event.capitalize()} mean", zorder=4, **style)
+        if mode == 'signed':
+            for event, color in (("startup", "tab:blue"), ("shutdown", "tab:orange")):
+                if slopes[event] is not None:
+                    ax.plot(line_x, slopes[event] * line_x, color=color,
+                            linestyle='-', linewidth=1.4,
+                            label=f"{event.capitalize()} theory", zorder=2)
+        elif slopes['magnitude'] is not None:
+            ax.plot(line_x, slopes['magnitude'] * line_x, color='black',
+                    linestyle='-', linewidth=1.4, label='Theory magnitude', zorder=2)
+        ax.axhline(0, color='0.4', linewidth=.9, zorder=0)
+        flow = 'Reverse' if direction == 'r' else 'Forward'
+        ax.set(xlabel='Reynolds number',
+               ylabel=('Signed impulse' if mode == 'signed' else 'Impulse magnitude') + ' (dyn·cm·s)',
+               title=f"Startup and shutdown: {mode} impulses\n{flow} flow",
+               xlim=(0, line_x[-1]))
+        ax.set_xticks([0] + reynolds)
+        ax.ticklabel_format(axis='x', style='plain', useOffset=False)
+        ax.grid(alpha=.2)
+        ax.set_axisbelow(True)
+        ax.margins(y=.15)
+        if mode == 'magnitude':
+            ax.set_ylim(bottom=0)
+        handles, labels = ax.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        order = [f"{event} {series}" for event in ("Startup", "Shutdown")
+                 for series in ("trials", "mean", "theory")]
+        if mode == 'magnitude':
+            order.insert(2, 'Theory magnitude')
+        order = [label for label in order if label in by_label]
+        ax.legend([by_label[label] for label in order], order, frameon=False, ncol=2, fontsize=8)
+        fig.tight_layout()
+        figures[filename] = fig
+    return figures
+
+
 def run_summary(config, direction, *, show=True, report=print):
     output = config["paths"]["output"] / "global" / direction
     try:
@@ -262,18 +368,19 @@ def run_summary(config, direction, *, show=True, report=print):
         report(str(exc))
         groups = []
     if not groups:
-        for filename, _ in FIGURES.values():
+        for filename in OUTPUT_FILENAMES:
             (output / filename).unlink(missing_ok=True)
         report(f"No comparable valid paired data for {direction}; removed old global figures.")
         return []
     figures = plot_summary(groups, direction)
+    figures.update(plot_combined_summary(groups, direction, report))
     output.mkdir(parents=True, exist_ok=True)
     for filename, fig in figures.items():
         fig.savefig(output / filename, dpi=300)
     for group in groups:
         report(f"{group.reynolds}{direction}: {len(group.trials)} trials; means (dyn·cm·s): "
                + ", ".join(f"{event}={np.mean(group.values(event)):.10f}" for event in FIGURES))
-    report(f"Saved three global figures to {output}")
+    report(f"Saved {len(figures)} global figures to {output}")
     if show:
         plt.show()
     for fig in figures.values():

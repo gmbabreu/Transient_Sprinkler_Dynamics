@@ -63,57 +63,96 @@ from Main_Functions.impulse_funcs import (
 from Main_Functions.scientific_pipeline import reconstruct_torque, measure_event_impulses
 
 
+TRIAL = re.compile(r"([1-9]\d*)([fr])([1-9]\d*)")
+
+
 def parse_trial(trial_id):
     """Read Reynolds number and flow direction from an ID such as '1000f2'.
 
     The final number identifies the repeat; it stays in the full trial ID so
     files for repeats remain distinct, but is not part of group selection.
     """
-    match = re.fullmatch(r"([1-9]\d*)([fr])([1-9]\d*)", trial_id)
+    match = TRIAL.fullmatch(trial_id)
     if match is None:
         raise ValueError(f"Invalid trial ID: {trial_id!r}; expected e.g. 1000f1")
     return int(match[1]), match[2]
 
 
-def load_config(path=Path(__file__).with_name("experiment_config.json")):
-    """Read the same JSON as MATLAB's loadBatchConfig and resolve its paths.
+def trial_group(trial):
+    reynolds, direction = parse_trial(trial)
+    return f'{reynolds}{direction}'
 
-    Relative paths are based on the configuration file, not the shell's current
-    directory. Expand each group into repeats 1..count, in group order. A scalar
-    trials_per_group supplies every count; an array supplies one per group.
-    The rest of the workflow still receives full trial IDs.
-    Reject invalid group/count settings before processing any outputs.
-    """
+
+def expand_ranges(ranges):
+    if not isinstance(ranges, dict):
+        raise ValueError('trial_ranges must be an object of group: [] or [first, last]')
+    trials = []
+    for group, bounds in ranges.items():
+        if not isinstance(group, str) or re.fullmatch(r'[1-9]\d*[fr]', group) is None:
+            raise ValueError(f'Invalid trial group: {group!r}')
+        if not isinstance(bounds, list) or len(bounds) not in (0, 2):
+            raise ValueError(f'{group}: trial_ranges requires [] or [first, last]')
+        for value in bounds:
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not 1 <= value <= 2**53 - 1 or value != int(value)):
+                raise ValueError(f'{group}: range endpoints must be positive safe integers')
+        if bounds:
+            first, last = map(int, bounds)
+            if last < first:
+                raise ValueError(f'{group}: reversed trial range')
+            trials.extend(f'{group}{number}' for number in range(first, last + 1))
+    return trials
+
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f'Duplicate JSON key: {key}')
+        result[key] = value
+    return result
+
+
+def trial_path(root, trial, suffix):
+    """Read grouped or legacy files, rejecting ambiguous duplicate identities."""
+    root = Path(root)
+    grouped = root / trial_group(trial) / f'{trial}{suffix}'
+    legacy = root / f'{trial}{suffix}'
+    if grouped.exists() and legacy.exists():
+        raise ValueError(f'Trial path collision: {grouped} and {legacy}')
+    return legacy if legacy.exists() else grouped
+
+
+def discover_trials(root):
+    """Discover generated pairs only; never infer identities from raw recordings."""
+    root = Path(root)
+    ids = set()
+    for path in [*root.glob('*_data.csv'), *root.glob('*/*_data.csv')]:
+        trial = path.name.removesuffix('_data.csv')
+        if TRIAL.fullmatch(trial) is None:
+            continue
+        if path.parent != root and path.parent.name != trial_group(trial):
+            raise ValueError(f'Misfiled trial: {path}')
+        csv = trial_path(root, trial, '_data.csv')
+        metadata = trial_path(root, trial, '_metadata.json')
+        if csv.is_file() and metadata.is_file():
+            ids.add(trial)
+    return sorted(ids, key=lambda t: (*parse_trial(t), int(TRIAL.fullmatch(t)[3])))
+
+
+def load_config(path=Path(__file__).with_name("experiment_config.json")):
+    """Load ingestion ranges separately from the saved analysis identities."""
     path = Path(path).resolve()
-    config = json.loads(path.read_text())
+    config = json.loads(path.read_text(), object_pairs_hook=unique_object)
     config["paths"] = {key: (path.parent / value).resolve()
                        for key, value in config["paths"].items()}
-    groups = config["trial_groups"]
-    if (not isinstance(groups, list) or not groups
-            or any(not isinstance(group, str) or re.fullmatch(r"[1-9]\d*[fr]", group) is None
-                   for group in groups)):
-        raise ValueError("trial_groups must be a nonempty list of group IDs such as 1000f.")
-    if len(groups) != len(set(groups)):
-        raise ValueError("Configured trial groups must be unique.")
-    counts = config["trials_per_group"]
-    if not isinstance(counts, list):
-        counts = [counts] * len(groups)
-    if len(counts) != len(groups):
-        raise ValueError("trials_per_group must be a positive integer or an array "
-                         "with one positive integer per trial group.")
-    for count in counts:
-        if (isinstance(count, bool) or not isinstance(count, (int, float))
-                or not np.isfinite(count) or count < 1 or count != int(count)):
-            raise ValueError("Each trials_per_group count must be a positive integer.")
-    # Keep full IDs as a derived in-memory list for the existing per-trial loops.
-    # Array counts follow trial_groups order; recordings are not discovered from disk.
-    config["trials"] = [f"{group}{repeat}" for group, count in zip(groups, counts)
-                        for repeat in range(1, int(count) + 1)]
+    config["ingestion_trials"] = expand_ranges(config["trial_ranges"])
+    config["trials"] = discover_trials(config["paths"]["data"])
     return config
 
 
 def select_trials(config, reynolds, direction):
-    """Return matching expanded trial IDs in configured group/repeat order."""
+    """Return saved identities in the requested analysis group."""
     return [trial_id for trial_id in config["trials"]
             if parse_trial(trial_id) == (int(reynolds), direction)]
 
@@ -137,7 +176,8 @@ def save_metadata(path, metadata):
     Finite JSON values keep this file readable by both MATLAB and Python;
     callers change only their own selections, preserving manual audio edits.
     """
-    path.write_text(json.dumps(metadata, indent=2, allow_nan=False) + "\n")
+    if json.loads(path.read_text()) != metadata:
+        path.write_text(json.dumps(metadata, indent=2, allow_nan=False) + "\n")
 
 
 def analyze_trial(trial_id, config, *, reselect=False, interactive=True):
@@ -157,7 +197,7 @@ def analyze_trial(trial_id, config, *, reselect=False, interactive=True):
     reynolds, direction = parse_trial(trial_id)
     data_dir = config["paths"]["data"]
     settings = config["analysis"]
-    metadata_path = data_dir / f"{trial_id}_metadata.json"
+    metadata_path = trial_path(data_dir, trial_id, "_metadata.json")
     metadata = json.loads(metadata_path.read_text())
     # Generation marks a trial valid only after tracking and audio succeed.
     # Check that status even when an old angle CSV is still on disk.
@@ -166,7 +206,7 @@ def analyze_trial(trial_id, config, *, reselect=False, interactive=True):
                          f"frames {metadata.get('invalid_frames', [])}")
 
     fname = f"{trial_id}_data.csv"
-    input_path = data_dir / fname
+    input_path = trial_path(data_dir, trial_id, "_data.csv")
     print("------------------------------")
     print("Data coming from ", fname, " in directory ", data_dir)
     if settings["fit_enabled"]:
@@ -407,7 +447,7 @@ def run_group(config, reynolds, direction, *, reselect=False, interactive=True, 
     """
     selected = select_trials(config, reynolds, direction)
     if not selected:
-        raise ValueError(f"No configured trials for {reynolds}{direction}")
+        raise ValueError(f"No saved trials for {reynolds}{direction}")
     group = f"{int(reynolds)}{direction}"
     output_dir = config["paths"]["output"] / group
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -469,6 +509,41 @@ def run_group(config, reynolds, direction, *, reselect=False, interactive=True, 
     return trials, failures
 
 
+def migrate_storage(config, *, apply=False, include_frames=False):
+    """Move legacy generated artifacts into groups; dry run unless apply=True."""
+    generated = r'([1-9]\d*[fr][1-9]\d*)(_data\.csv|_metadata\.json|_maskedData\.mp4|_overlayData\.mp4|_overlayFrames)'
+    roots = [(config['paths']['data'], generated)]
+    if include_frames:
+        roots.append((config['paths']['frames'], r'([1-9]\d*[fr][1-9]\d*)_frames'))
+    moves = []
+    for root, pattern in roots:
+        if not root.exists():
+            continue
+        for source in sorted(root.iterdir()):
+            match = re.fullmatch(pattern, source.name)
+            if match:
+                destination = root / trial_group(match[1]) / source.name
+                if destination.exists():
+                    raise ValueError(f'Migration conflict: {source} -> {destination}')
+                moves.append((source, destination))
+    for source, destination in moves:
+        print(f'MOVE {source} -> {destination}')
+    if apply:
+        completed = []
+        try:
+            for source, destination in moves:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                source.rename(destination)
+                completed.append((source, destination))
+        except Exception:
+            for source, destination in reversed(completed):
+                destination.rename(source)
+            raise
+    else:
+        print('Dry run; use --apply to move files. External frames require --include-frames.')
+    return moves
+
+
 def main():
     """Translate command-line choices into one configured group analysis."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -480,7 +555,13 @@ def main():
     parser.add_argument("--reselect", action="store_true", help="Pick fit start and torque windows again")
     parser.add_argument("--non-interactive", action="store_true", help="Require saved fit; use saved/default windows")
     parser.add_argument("--no-show", action="store_true", help="Save comparison plots without displaying diagnostics")
+    parser.add_argument("--migrate-data", action="store_true", help="Organize existing generated files by group")
+    parser.add_argument("--apply", action="store_true", help="Apply migration (default: dry run)")
+    parser.add_argument("--include-frames", action="store_true", help="Include configured, possibly external frames in migration")
     args = parser.parse_args()
+    if args.migrate_data:
+        migrate_storage(load_config(args.config), apply=args.apply, include_frames=args.include_frames)
+        return 0
     # Accept the shorter positional form as well as the original named options.
     # Reject duplicate values so the requested group is always unambiguous.
     for name in ("reynolds", "direction"):
