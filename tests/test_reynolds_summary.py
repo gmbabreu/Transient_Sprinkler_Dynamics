@@ -19,6 +19,12 @@ import main
 import plot_reynolds_summary as summary
 
 
+ALL_OUTPUTS = {
+    "startup_vs_reynolds.png", "shutdown_vs_reynolds.png", "mismatch_vs_reynolds.png",
+    "startup_shutdown_signed_vs_reynolds.png", "startup_shutdown_magnitude_vs_reynolds.png",
+}
+
+
 class ReynoldsSummaryTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -167,6 +173,11 @@ class ReynoldsSummaryTests(unittest.TestCase):
         for fragment in ("1000r2", "1000r3", "1000r4", "1000r5", "1000r6", "1000r7",
                          "deselected trial 1000r8", "wrong group/direction", "malformed identity"):
             self.assertTrue(any(fragment in message for message in self.messages), fragment)
+        for fig in summary.plot_combined_summary(groups, "r", self.messages.append).values():
+            artists = {artist.get_label(): artist for artist in fig.axes[0].collections}
+            np.testing.assert_array_equal(artists["Startup trials"].get_offsets(), [[1000, -10]]
+                                          if "signed" in fig.axes[0].get_title() else [[1000, 10]])
+            self.assertEqual(len(artists["Shutdown trials"].get_offsets()), 1)
 
     def test_missing_groups_and_partial_or_invalid_theory_keep_measurements(self):
         first = self.pair("1000r1", theory=(None, 8.))
@@ -222,6 +233,127 @@ class ReynoldsSummaryTests(unittest.TestCase):
         np.testing.assert_array_equal(forward.values("startup"), [10])
         np.testing.assert_array_equal(reverse[0].values("startup"), [-10, -10])
         self.assertEqual(forward.theory["startup"], 8)
+        for groups, direction, startup in ((reverse, "r", [-10, -10]), ([forward], "f", [10])):
+            figures = summary.plot_combined_summary(groups, direction, self.messages.append)
+            ax = figures[summary.COMBINED_FIGURES["signed"]].axes[0]
+            trials = next(artist for artist in ax.collections if artist.get_label() == "Startup trials")
+            np.testing.assert_array_equal(trials.get_offsets()[:, 1], startup)
+
+    def test_combined_exact_signed_values_magnitudes_means_and_theory_lines(self):
+        self.config["trials"].append("500r2")
+        self.write("500r", self.pair("500r1", -5, 7, (-4, 4))
+                   + self.pair("500r2", 3, -1, (-4, 4)))
+        self.write("1000r", self.pair("1000r1", -10, 14) + self.pair("1000r2", -20, 30))
+        self.write("1500r", self.pair("1500r1", -30, 50, (-12, 12)))
+        groups = self.collect()
+        before = [dict(trial.measured) for group in groups for trial in group.trials]
+        figures = summary.plot_combined_summary(groups[::-1], "r", self.messages.append)
+        for mode, expected in {
+            "signed": {"Startup trials": [-5, 3, -10, -20, -30], "Startup mean": [-1, -15, -30],
+                       "Shutdown trials": [7, -1, 14, 30, 50], "Shutdown mean": [3, 22, 50]},
+            "magnitude": {"Startup trials": [5, 3, 10, 20, 30], "Startup mean": [4, 15, 30],
+                          "Shutdown trials": [7, 1, 14, 30, 50], "Shutdown mean": [4, 22, 50]},
+        }.items():
+            ax = figures[summary.COMBINED_FIGURES[mode]].axes[0]
+            artists = {artist.get_label(): artist for artist in ax.collections}
+            self.assertEqual(set(artists), set(expected))
+            for label, values in expected.items():
+                x = [500, 500, 1000, 1000, 1500] if label.endswith("trials") else [500, 1000, 1500]
+                np.testing.assert_array_equal(artists[label].get_offsets(), np.column_stack([x, values]))
+                self.assertTrue(0 < artists[label].get_alpha() < 1)
+            np.testing.assert_array_equal(artists["Startup mean"].get_paths()[0].vertices,
+                                          artists["Shutdown mean"].get_paths()[0].vertices)
+            self.assertFalse(np.array_equal(artists["Startup mean"].get_edgecolors()[0, :3],
+                                           artists["Shutdown mean"].get_edgecolors()[0, :3]))
+            for event in ("Startup", "Shutdown"):
+                self.assertGreater(artists[f"{event} mean"].get_sizes()[0],
+                                   artists[f"{event} trials"].get_sizes()[0])
+            lines = {line.get_label(): line for line in ax.lines if "theory" in line.get_label().lower()}
+            expected_slopes = ({"Startup theory": -.008, "Shutdown theory": .008} if mode == "signed"
+                               else {"Theory magnitude": .008})
+            self.assertEqual(set(lines), set(expected_slopes))
+            for label, slope in expected_slopes.items():
+                np.testing.assert_allclose(lines[label].get_xdata(), [0, 1650])
+                np.testing.assert_allclose(lines[label].get_ydata(), [0, slope * 1650])
+                self.assertEqual(lines[label].get_marker(), "None")
+            np.testing.assert_array_equal(ax.get_xticks(), [0, 500, 1000, 1500])
+            self.assertIn("dyn·cm·s", ax.get_ylabel())
+            self.assertIn("magnitude" if mode == "magnitude" else "Signed", ax.get_ylabel())
+            self.assertEqual(len(ax.lines), len(expected_slopes) + 1)  # Also the zero reference
+            self.assertTrue(all(isinstance(artist, PathCollection) for artist in ax.collections))
+            self.assertEqual(len(ax.containers), 0)
+            self.assertEqual(len(ax.patches), 0)
+            self.assertEqual(len(ax.texts), 0)
+        self.assertEqual([trial.measured for group in groups for trial in group.trials], before)
+
+    def test_combined_single_group_respects_direction_and_stored_sign_convention(self):
+        for direction, sign, prediction in (("r", 1, -8), ("f", 1, 8), ("r", -1, 8), ("f", -1, -8)):
+            with self.subTest(direction=direction, sign=sign):
+                trial_id = f"1000{direction}1"
+                self.config["trials"] = [trial_id]
+                rows = self.pair(trial_id, 1.25 * prediction, -1.5 * prediction,
+                                 (prediction, -prediction))
+                for row in rows:
+                    row["sign_convention"] = sign
+                self.write(f"1000{direction}", rows)
+                figures = summary.plot_combined_summary(self.collect(direction), direction, self.messages.append)
+                ax = figures[summary.COMBINED_FIGURES["signed"]].axes[0]
+                start, stop = [line for line in ax.lines if "theory" in line.get_label()]
+                np.testing.assert_array_equal(start.get_xdata(), [0, 1100])
+                np.testing.assert_allclose(start.get_ydata(), [0, prediction * 1.1])
+                np.testing.assert_array_equal(start.get_ydata(), -stop.get_ydata())
+                magnitude = figures[summary.COMBINED_FIGURES["magnitude"]].axes[0].lines[0]
+                np.testing.assert_allclose(magnitude.get_ydata(), [0, abs(prediction) * 1.1])
+                plt.close('all')
+
+    def test_combined_missing_theory_and_roundoff_preserve_all_measurements(self):
+        self.config["trials"] = ["500r1", "1000r1"]
+        self.write("500r", self.pair("500r1", theory=(None, None)))
+        for theory, expected_signed, expected_magnitude in (
+                ((None, None), set(), False), ((-8, None), {"Startup theory"}, True),
+                ((None, 8), {"Shutdown theory"}, True), ((-8, 8), {"Startup theory", "Shutdown theory"}, True)):
+            with self.subTest(theory=theory):
+                self.write("1000r", self.pair("1000r1", theory=theory))
+                figures = summary.plot_combined_summary(self.collect(), "r", self.messages.append)
+                for mode, filename in summary.COMBINED_FIGURES.items():
+                    ax = figures[filename].axes[0]
+                    self.assertEqual(len(ax.collections), 4)
+                    self.assertEqual(len(ax.collections[0].get_offsets()), 2)
+                    labels = {line.get_label() for line in ax.lines if "theory" in line.get_label().lower()}
+                    expected = expected_signed if mode == "signed" else ({"Theory magnitude"} if expected_magnitude else set())
+                    self.assertEqual(labels, expected)
+                plt.close('all')
+        self.write("500r", self.pair("500r1", theory=(-4, 4)))
+        self.write("1000r", self.pair("1000r1", theory=(-8 * (1 + 1e-12), 8 * (1 + 1e-12))))
+        slopes = summary.combined_theory_slopes(self.collect(), self.messages.append)
+        self.assertEqual(slopes, dict(startup=-.008, shutdown=.008, magnitude=.008))
+        self.assertTrue(any("theory unavailable" in message for message in self.messages))
+
+    def test_combined_inconsistent_slopes_or_asymmetry_omit_lines_not_measurements(self):
+        for second in ((-9, 9), (-8, 9), (-8, -8)):
+            with self.subTest(second=second):
+                self.config["trials"] = ["500r1", "1000r1"]
+                self.write("500r", self.pair("500r1", theory=(-4, 4)))
+                self.write("1000r", self.pair("1000r1", theory=second))
+                groups = self.collect()
+                self.messages.clear()
+                figures = summary.plot_combined_summary(groups, "r", self.messages.append)
+                for fig in figures.values():
+                    self.assertEqual(len(fig.axes[0].lines), 1)  # Only zero reference
+                    self.assertEqual(len(fig.axes[0].collections[0].get_offsets()), 2)
+                self.assertTrue(any("inconsistent" in message or "not equal and opposite" in message
+                                    for message in self.messages))
+                # Combined validation does not alter the original group predictions.
+                self.assertEqual(groups[1].theory['startup'], second[0])
+                self.assertEqual(groups[1].theory['shutdown'], second[1])
+                plt.close('all')
+        self.config["trials"] = ["500r1", "500r2", "1000r1"]
+        self.write("500r", self.pair("500r1", theory=(-4, 4))
+                   + self.pair("500r2", theory=(-5, 5)))
+        self.write("1000r", self.pair("1000r1"))
+        for fig in summary.plot_combined_summary(self.collect(), "r", self.messages.append).values():
+            self.assertEqual(len(fig.axes[0].lines), 1)
+        self.assertTrue(any("rejected group predictions at Re=[500]" in message for message in self.messages))
 
     def test_physical_conventions_must_agree_across_trials_and_groups(self):
         for same_group in (False, True):
@@ -269,7 +401,7 @@ class ReynoldsSummaryTests(unittest.TestCase):
     def stale_outputs(self):
         output = self.config["paths"]["output"] / "global" / "r"
         output.mkdir(parents=True, exist_ok=True)
-        for filename, _ in summary.FIGURES.values():
+        for filename in ALL_OUTPUTS:
             (output / filename).write_bytes(b"old")
         (output / "keep.txt").write_text("unrelated")
         return output
@@ -308,8 +440,13 @@ class ReynoldsSummaryTests(unittest.TestCase):
         per_group.write_bytes(b"keep existing figure")
         before = {p: p.read_bytes() for p in (path, jump, metadata, per_group)}
         raw_config = json.loads(Path(main.__file__).with_name("experiment_config.json").read_text())
-        raw_config["trial_groups"] = ["1000r"]
-        raw_config["trials_per_group"] = 2
+        raw_config["trial_ranges"] = {"1000r": []}
+        raw_config["paths"]["data"] = "data"
+        data = self.root / "data/1000r"
+        data.mkdir(parents=True)
+        for trial in ("1000r1", "1000r2"):
+            (data / f"{trial}_data.csv").write_text("time_seconds,angle_degrees\n0,0\n")
+            (data / f"{trial}_metadata.json").write_text('{"valid":true}')
         raw_config["paths"]["output"] = "results"
         config_path = self.root / "config.json"
         config_path.write_text(json.dumps(raw_config))
@@ -321,14 +458,33 @@ class ReynoldsSummaryTests(unittest.TestCase):
              patch.object(plt.Figure, "savefig", autospec=True) as save, \
              contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(summary.main(), 0)
-        self.assertEqual(save.call_count, 3)
+        self.assertEqual(save.call_count, 5)
         for call in save.call_args_list:
             self.assertEqual(call.kwargs["dpi"], 300)
             self.assertEqual(call.args[1].parent, self.root / "results" / "global" / "r")
         self.assertEqual({call.args[1].name for call in save.call_args_list},
-                         {filename for filename, _ in summary.FIGURES.values()})
+                         ALL_OUTPUTS)
         self.assertEqual({p: p.read_bytes() for p in before}, before)
         self.assertEqual(plt.get_fignums(), [])
+
+    def test_five_actual_outputs_preserve_original_pngs_summaries_and_metadata(self):
+        self.config["trials"] = ["1000r1", "1000r2"]
+        path = self.write("1000r", self.pair("1000r1") + self.pair("1000r2"))
+        metadata = self.root / "1000r1_metadata.json"
+        metadata.write_text('{"fit_start_s": 10, "valid": true}')
+        inputs_before = {p: p.read_bytes() for p in (path, metadata)}
+        output = self.config["paths"]["output"] / "global" / "r"
+        output.mkdir(parents=True)
+        for filename, fig in summary.plot_summary(self.collect(), "r").items():
+            fig.savefig(output / filename, dpi=300)
+            plt.close(fig)
+        originals = {p: p.read_bytes() for p in output.iterdir()}
+        self.assertEqual(len(originals), 3)
+        summary.run_summary(self.config, "r", show=False, report=self.messages.append)
+        self.assertEqual({p.name for p in output.iterdir()}, ALL_OUTPUTS)
+        self.assertEqual({p: p.read_bytes() for p in originals}, originals)
+        self.assertEqual({p: p.read_bytes() for p in inputs_before}, inputs_before)
+        self.assertTrue(any("Saved 5 global figures" in message for message in self.messages))
 
 
 if __name__ == "__main__":

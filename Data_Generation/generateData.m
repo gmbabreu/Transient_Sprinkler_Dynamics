@@ -9,58 +9,38 @@ clear
 % Resolve files relative to this script, independently of MATLAB's current folder.
 scriptDir = fileparts(mfilename('fullpath'));
 addpath(scriptDir, fullfile(scriptDir, 'calibration'));
-config = loadBatchConfig();
-if ~isfolder(config.paths.data)
-    mkdir(config.paths.data);
-end
+[config, trialPath] = loadBatchConfig();
+% MATLAB ingestion never clears or replaces group analysis products. Python
+% rebuilds them from all saved trials, including historical data.
 
-%% Calibration
-assert(isfile(config.paths.ruler_calibration), ...
-    'Run calibration/calibrateRulerAxis.m first: %s', config.paths.ruler_calibration);
-calibrationData = load(config.paths.ruler_calibration, 'rulerCalibration');
-% Load one ruler calibration for all listed trials. xC comes from its chosen
-% physical ruler origin, while D is the camera/mirror distance in inches.
-rulerCalibration = calibrationData.rulerCalibration;
-xC = rulerCalibration.originValue;
-D = config.video.mirror_distance_inches; % Spring-calibration geometry is separate.
-
-% Clear generated group products before rebuilding them from valid trials.
-% Removing the final repeat number gives names such as 1000f. Previous group
-% summaries/plots may include a trial that fails this run, so discard them now.
-groups = regexprep(config.trials, '[0-9]+$', '');
-for group = unique(groups(:))'
-    outputDir = fullfile(config.paths.output, group);
-    if ~isfolder(outputDir)
-        mkdir(outputDir);
-    end
-    patterns = {'*_signal.csv', '*_impulses.csv', '*_impulse_diagnostics.png', 'impulse_summary.csv', ...
-        'torque.png', 'cumulative_integral.png', 'impulse_comparison.png', 'angular_displacement.png', ...
-        'relative_errors.png', 'relative_errors.csv', '*_jumps.csv', 'jump_summary.csv', ...
-        '*_jump_diagnostics.png', 'cumulative_jump_comparison.png'};
-    for p = 1:numel(patterns)
-        oldFiles = dir(fullfile(outputDir, patterns{p}));
-        for j = 1:numel(oldFiles)
-            delete(fullfile(outputDir, oldFiles(j).name));
-        end
-    end
-end
-validTrials = struct('id', {}, 'group', {}, 'time', {}, 'angle', {}, 'startup', {});
-
-for trialIndex = 1:numel(config.trials)
-    file = config.trials(trialIndex);
-    csvPath = fullfile(config.paths.data, file + "_data.csv");
-    metadataPath = fullfile(config.paths.data, file + "_metadata.json");
-    % Remove old angles before attempting generation; failure must leave no valid CSV.
-    if isfile(csvPath)
-        delete(csvPath);
-    end
+for trialIndex = 1:numel(config.ingestion_trials)
+    file = config.ingestion_trials(trialIndex);
     V = [];
     overlayV = [];
     metadata = struct();
+    generationStarted = false;
     try
+        csvPath = trialPath(config.paths.data, file, "_data.csv");
+        metadataPath = trialPath(config.paths.data, file, "_metadata.json");
         if isfile(metadataPath)
             metadata = jsondecode(fileread(metadataPath));
         end
+        regenerate = any(config.video.regenerate_trials == file);
+        if isfile(csvPath) && isfield(metadata, 'valid') && isequal(metadata.valid, true) && ~regenerate
+            fprintf('Skipping completed trial: %s\n', file);
+            continue;
+        end
+        if isfile(csvPath)
+            assert(regenerate, 'Existing trial %s is protected; use video.regenerate_trials.', file);
+        end
+        assert(isfile(config.paths.ruler_calibration), 'Missing ruler calibration: %s', config.paths.ruler_calibration);
+        calibrationData = load(config.paths.ruler_calibration, 'rulerCalibration');
+        rulerCalibration = calibrationData.rulerCalibration;
+        xC = rulerCalibration.originValue;
+        D = config.video.mirror_distance_inches;
+        mov_name = fullfile(config.paths.trials, file + config.video.extension);
+        assert(isfile(mov_name), ['Recording not found: %s. Exact trial-ID filename required; ' ...
+            'generic camera filenames need explicit source identification.'], mov_name);
         % Preserve all saved manual times, fit start and windows on ordinary reruns.
         % Empty arrays mean 'not selected yet'; Python also accepts JSON null.
         % Do not initialize stored integration bounds here: Python derives
@@ -80,9 +60,11 @@ for trialIndex = 1:numel(config.trials)
         metadata.invalid_frames = [];
         metadata.failure_reason = 'Generation incomplete';
         writeMetadata(metadataPath, metadata);
+        if isfile(csvPath), delete(csvPath); end
+        generationStarted = true;
 
         %% READ, MASK, AND EXTRACT DATA
-        folder = fullfile(config.paths.frames, file + "_frames");
+        folder = trialPath(config.paths.frames, file, "_frames");
         marker = fullfile(folder, '.complete');
         assert(isfile(marker), 'Missing complete extraction; run save_frames.m for %s.', file);
         info = sscanf(fileread(marker), '%f');
@@ -106,18 +88,18 @@ for trialIndex = 1:numel(config.trials)
 
         % Save videos.
         if config.video.masked_video
-            V = VideoWriter(fullfile(config.paths.data, file + "_maskedData.mp4"), 'MPEG-4');
+            V = VideoWriter(trialPath(config.paths.data, file, "_maskedData.mp4"), 'MPEG-4');
             V.FrameRate = fps;
             V.Quality = 95;
             open(V);
         end
         if config.video.overlay_video
-            overlayV = VideoWriter(fullfile(config.paths.data, file + "_overlayData.mp4"), 'MPEG-4');
+            overlayV = VideoWriter(trialPath(config.paths.data, file, "_overlayData.mp4"), 'MPEG-4');
             overlayV.FrameRate = fps;
             overlayV.Quality = 95;
             open(overlayV);
         end
-        overlayFolder = fullfile(config.paths.data, file + "_overlayFrames");
+        overlayFolder = trialPath(config.paths.data, file, "_overlayFrames");
         if config.video.overlay_frames && ~isfolder(overlayFolder)
             mkdir(overlayFolder);
         end
@@ -189,7 +171,6 @@ for trialIndex = 1:numel(config.trials)
         assert(isempty(metadata.invalid_frames), ...
             'Missing laser/nonfinite angles at frames %s', mat2str(metadata.invalid_frames));
         %% AUDIO TIMING AND INDIVIDUAL DATA EXPORT
-        mov_name = fullfile(config.paths.trials, file + config.video.extension);
         % Save fresh audio candidates separately from the preserved manual
         % corrections. Only the effective startup time shifts comparison plots.
         metadata.audio_candidates_s = estimateSoundTimes(mov_name, config.audio, [t, theta_all]);
@@ -208,8 +189,6 @@ for trialIndex = 1:numel(config.trials)
         metadata.valid = true;
         metadata.failure_reason = '';
         writeMetadata(metadataPath, metadata);
-        validTrials(end+1) = struct('id', file, 'group', groups(trialIndex), ...
-            'time', t, 'angle', theta_all, 'startup', startup); %#ok<SAGROW>
         fprintf('Saved %s\n', csvPath);
     catch err
         if ~isempty(V)
@@ -218,11 +197,11 @@ for trialIndex = 1:numel(config.trials)
         if ~isempty(overlayV)
             close(overlayV);
         end
-        if isfile(csvPath)
+        if generationStarted && isfile(csvPath)
             delete(csvPath);
         end
         % A malformed existing JSON is not overwritten: keep manual edits recoverable.
-        if isfield(metadata, 'valid')
+        if generationStarted && isfield(metadata, 'valid')
             metadata.valid = false;
             metadata.failure_reason = err.message;
             writeMetadata(metadataPath, metadata);
@@ -231,39 +210,17 @@ for trialIndex = 1:numel(config.trials)
     end
 end
 
-%% PLOT INDIVIDUAL TRIALS
-% One line per trial, on its own original samples; audio shift is display-only.
-for group = unique(groups(:))'
-    fig = figure;
-    hold on;
-    lines = 0;
-    for i = 1:numel(validTrials)
-        trial = validTrials(i);
-        if trial.group == group
-            plot(trial.time - trial.startup, trial.angle, ...
-                'LineWidth', 1.5, 'DisplayName', trial.id);
-            lines = lines + 1;
-        end
-    end
-    if lines == 0
-        close(fig);
-        continue;
-    end
-    xlabel('Time from effective startup (s)');
-    ylabel('Angular displacement (degrees)');
-    title(group + ": individual angular displacements");
-    legend('show');
-    grid on;
-    exportgraphics(fig, fullfile(config.paths.output, group, 'angular_displacement.png'));
-end
-
 function writeMetadata(path, metadata)
-% Write the one shared per-trial JSON, including any preserved user selections.
-% onCleanup closes the file even if encoding or writing raises an error.
-    fid = fopen(path, 'w');
-    assert(fid ~= -1, 'Cannot write metadata: %s', path);
+    parent = fileparts(path);
+    if ~isfolder(parent), mkdir(parent); end
+    temporary = string(tempname(parent)) + ".json";
+    fid = fopen(temporary, 'w');
+    assert(fid ~= -1, 'Cannot write metadata: %s', temporary);
     cleanup = onCleanup(@() fclose(fid));
     fprintf(fid, '%s\n', jsonencode(metadata, 'PrettyPrint', true));
+    clear cleanup;
+    [ok,message] = movefile(temporary, path, 'f');
+    assert(ok, '%s', message);
 end
 
 function value = effectiveTime(metadata, event)

@@ -1,18 +1,28 @@
 {
   "paths": {
     "trials": "/run/media/ga2740/CAM_SD/PRIVATE/AVCHD/BDMV/STREAM",
-    "frames": "Data_Generation/frames",
+    "frames": "/run/media/ga2740/F562-36DC/frames",
     "data": "Data_Generation/data",
     "output": "results",
     "calibration_reference": "Data_Generation/calibration/frame.jpg",
     "ruler_calibration": "Data_Generation/calibration/frame_rulerCalibration.mat"
   },
-  "trial_groups": ["1000r", "1500r"],
-  "trials_per_group": [4,2],
+  "trial_ranges": {
+    "500r": [],
+    "500f": [],
+    "1000r": [5, 9],
+    "1000f": [],
+    "1500r": [],
+    "1500f": []
+  },
+  "calibration": {
+    "reference_trial": "1000r1"
+  },
   "video": {
     "extension": ".MTS",
     "mirror_distance_inches": 48,
     "regenerate_frames": false,
+    "regenerate_trials": [],
     "masked_video": false,
     "overlay_video": false,
     "overlay_frames": false,

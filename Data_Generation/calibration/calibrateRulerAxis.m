@@ -6,7 +6,7 @@ clear
 % unchanged. The same saved result is reused for all batch trials.
 calibrationDir = fileparts(mfilename('fullpath'));
 addpath(fileparts(calibrationDir));
-config = loadBatchConfig();
+[config, trialPath] = loadBatchConfig();
 
 %% SETUP
 rulerValues = [8 10 12 14 17.5 22 24 26];
@@ -14,16 +14,18 @@ numPoints = numel(rulerValues);
 
 originValue = 17.5;          % Physical value chosen as xC
 
-% Refresh the displayed reference whenever calibration is explicitly started.
-% Use repeat 1 of the first configured group, just as save_frames.m does.
-% Copy the extracted JPEG directly so its pixels match the tracking images.
-referenceFrame = fullfile(config.paths.frames, config.trials(1) + "_frames", '001.jpg');
-assert(isfile(referenceFrame), ...
-    'Missing first batch frame: %s. Run save_frames.m before calibration.', referenceFrame);
-referenceDir = fileparts(config.paths.calibration_reference);
-if ~isfolder(referenceDir), mkdir(referenceDir); end
-copyfile(referenceFrame, config.paths.calibration_reference, 'f');
-imageData = imread(config.paths.calibration_reference);
+% Reuse historical calibration by default. A new calibration must have a new
+% destination: never replace bytes that historical trials may depend on.
+assert(~isfile(config.paths.ruler_calibration), ...
+    'Calibration exists; reuse it, or select a NEW paths.ruler_calibration for a new setup.');
+referenceFrame = config.paths.calibration_reference;
+if isfield(config, 'calibration') && isfield(config.calibration, 'reference_trial') ...
+        && strlength(string(config.calibration.reference_trial)) > 0
+    referenceFrame = fullfile(trialPath(config.paths.frames, ...
+        string(config.calibration.reference_trial), "_frames"), '001.jpg');
+end
+assert(isfile(referenceFrame), 'Missing explicit calibration reference: %s', referenceFrame);
+imageData = imread(referenceFrame);
 
 %% COLLECT CLICKS
 

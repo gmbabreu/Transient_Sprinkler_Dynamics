@@ -18,58 +18,32 @@ import main
 
 
 class BatchConfigTests(unittest.TestCase):
-    """Both workflow stages need the same explicit group/repeat expansion."""
-
-    def load(self, groups, count):
+    def load(self, ranges):
         config = json.loads(Path(main.__file__).with_name('experiment_config.json').read_text())
-        config['trial_groups'] = groups
-        config['trials_per_group'] = count
+        config['trial_ranges'] = ranges
+        config['video']['regenerate_trials'] = []
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'config.json'
             path.write_text(json.dumps(config))
             return main.load_config(path)
 
-    def test_expands_same_repeat_count_for_each_group_in_order(self):
-        config = self.load(['1000f', '500r', '1500f'], 3)
-        self.assertEqual(config['trials'], [
-            '1000f1', '1000f2', '1000f3',
-            '500r1', '500r2', '500r3',
-            '1500f1', '1500f2', '1500f3',
-        ])
-        self.assertEqual(main.select_trials(config, 500, 'r'), ['500r1', '500r2', '500r3'])
-        self.assertEqual(main.select_trials(config, 1000, 'r'), [])
-        self.assertEqual(self.load(['1000f', '500r'], 1)['trials'], ['1000f1', '500r1'])
-        # Counts are numeric integers in MATLAB, so accept JSON 3.0 as well.
-        self.assertEqual(self.load(['500r'], 3.0)['trials'], ['500r1', '500r2', '500r3'])
+    def test_inclusive_ranges_and_empty_groups(self):
+        config = self.load({'500r': [], '1000r': [5, 9], '1500f': [2., 3.]})
+        self.assertEqual(config['ingestion_trials'], [
+            '1000r5', '1000r6', '1000r7', '1000r8', '1000r9', '1500f2', '1500f3'])
+        self.assertEqual(config['trials'], [])
+        self.assertEqual(self.load({'1000r': []})['ingestion_trials'], [])
+        self.assertEqual(self.load({})['ingestion_trials'], [])
 
-    def test_rejects_malformed_or_duplicate_groups(self):
-        for groups in ([], ['1000f1'], ['1000x'], ['0f'], ['1000f', '1000f'], '1000f', [1000]):
-            with self.subTest(groups=groups), self.assertRaisesRegex(ValueError, 'group'):
-                self.load(groups, 3)
-
-    def test_expands_individual_repeat_counts_in_group_order(self):
-        config = self.load(['1000f', '1000r', '500f', '500r'], [1, 2, 4, 5])
-        self.assertEqual(config['trials'], [
-            '1000f1',
-            '1000r1', '1000r2',
-            '500f1', '500f2', '500f3', '500f4',
-            '500r1', '500r2', '500r3', '500r4', '500r5',
-        ])
-        self.assertEqual(main.select_trials(config, 1000, 'r'), ['1000r1', '1000r2'])
-        self.assertEqual(self.load(['1000f'], [3])['trials'], ['1000f1', '1000f2', '1000f3'])
-        self.assertEqual(self.load(['1000f', '500r'], [1., 2.])['trials'],
-                         ['1000f1', '500r1', '500r2'])
-
-    def test_rejects_mismatched_or_invalid_count_arrays(self):
-        for counts in ([], [1], [1, 2, 3], [0, 2], [-1, 2], [1.5, 2],
-                       [True, 2], ['1', 2], [None, 2], [[1], 2]):
-            with self.subTest(counts=counts), self.assertRaisesRegex(ValueError, 'trials_per_group'):
-                self.load(['1000f', '500r'], counts)
-
-    def test_rejects_nonpositive_or_noninteger_repeat_counts(self):
-        for count in (0, -1, 1.5, True, '3', None, []):
-            with self.subTest(count=count), self.assertRaisesRegex(ValueError, 'positive integer'):
-                self.load(['1000f'], count)
+    def test_rejects_malformed_groups_and_ranges(self):
+        for ranges in ([], None, {'0r': []}, {'x1000r': []}, {'1000r1': []},
+                       {'1000x': []}, {'1000r': 3}, {'1000r': [1]},
+                       {'1000r': [1,2,3]}, {'1000r': [0,2]}, {'1000r': [2,1]},
+                       {'1000r': [True,2]}, {'1000r': [1.5,3]}, {'1000r': [[1],2]},
+                       {'1000r': ['1',2]}, {'1000r': [1, float('inf')]},
+                       {'1000r': [1, 2**53]}):
+            with self.subTest(ranges=ranges), self.assertRaises(ValueError):
+                self.load(ranges)
 
 
 class BatchWorkflowTests(unittest.TestCase):
@@ -107,6 +81,67 @@ class BatchWorkflowTests(unittest.TestCase):
         """Run the actual per-trial analysis while keeping test output concise."""
         with contextlib.redirect_stdout(io.StringIO()):
             return main.analyze_trial('1000r1', self.config, **kwargs)
+
+    def test_saved_old_and_new_trials_are_analyzed_with_empty_ranges(self):
+        self.write_trial('1000r5', self.metadata)
+        grouped = self.root / '1000r'
+        grouped.mkdir()
+        for suffix in ('_data.csv', '_metadata.json'):
+            path = self.root / ('1000r5' + suffix)
+            path.rename(grouped / path.name)
+        raw = json.loads(Path(main.__file__).with_name('experiment_config.json').read_text())
+        raw['paths']['data'] = str(self.root)
+        raw['paths']['output'] = str(self.root / 'results')
+        raw['trial_ranges'] = {'1000r': []}
+        path = self.root / 'config.json'
+        path.write_text(json.dumps(raw))
+        config = main.load_config(path)
+        self.assertEqual(config['ingestion_trials'], [])
+        self.assertEqual(config['trials'], ['1000r1', '1000r5'])
+        before = {p:p.read_bytes() for p in self.root.rglob('*_metadata.json')}
+        with contextlib.redirect_stdout(io.StringIO()):
+            trials, failures = main.run_group(config, 1000, 'r', interactive=False, show=False)
+        self.assertFalse(failures)
+        self.assertEqual([t['trial_id'] for t in trials], ['1000r1','1000r5'])
+        self.assertEqual({p:p.read_bytes() for p in before}, before)
+
+    def test_migration_dry_run_grouping_and_idempotency(self):
+        before = {p.name:p.read_bytes() for p in self.root.glob('1000r1*')}
+        frames = self.root/'frames/1000r1_frames'
+        frames.mkdir(parents=True)
+        (frames/'.complete').write_text('1 50\n')
+        self.config['paths']['frames'] = frames.parent
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(len(main.migrate_storage(self.config)), 2)
+            self.assertTrue((self.root/'1000r1_data.csv').exists())
+            main.migrate_storage(self.config, apply=True)
+            self.assertTrue(frames.exists())
+            main.migrate_storage(self.config, apply=True, include_frames=True)
+            self.assertEqual(main.migrate_storage(self.config, apply=True, include_frames=True), [])
+        self.assertEqual({p.name:p.read_bytes() for p in (self.root/'1000r').iterdir()}, before)
+        self.assertTrue((frames.parent/'1000r/1000r1_frames/.complete').exists())
+
+    def test_migration_conflicts_and_partial_failures_preserve_sources(self):
+        group = self.root/'1000r'
+        group.mkdir()
+        conflict = group/'1000r1_data.csv'
+        conflict.write_text('destination')
+        with self.assertRaisesRegex(ValueError,'conflict'):
+            main.migrate_storage(self.config, apply=True)
+        self.assertEqual(conflict.read_text(), 'destination')
+        conflict.unlink()
+        original = Path.rename
+        calls = []
+        def fail_second(source, destination):
+            calls.append(source)
+            if len(calls) == 2:
+                raise OSError('synthetic disk failure')
+            return original(source, destination)
+        with patch.object(Path,'rename',fail_second), contextlib.redirect_stdout(io.StringIO()), \
+                self.assertRaisesRegex(OSError,'disk failure'):
+            main.migrate_storage(self.config, apply=True)
+        self.assertTrue((self.root/'1000r1_data.csv').exists())
+        self.assertTrue((self.root/'1000r1_metadata.json').exists())
 
     def test_selects_explicit_group_in_configured_order(self):
         # Include similar prefixes to catch substring-based group selection.
