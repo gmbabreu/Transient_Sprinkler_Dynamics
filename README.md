@@ -7,7 +7,7 @@ tail, applying the existing Fourier solver and torque filter, and checking a
 forward ODE reconstruction. Measure two separate signed cumulative torque values around pump
 startup and shutdown, and compare individual trials against theory.
 
-## Four-step workflow
+## Five-step workflow
 
 Run these commands from the repository root.
 
@@ -17,13 +17,14 @@ Run these commands from the repository root.
 
    ```json
    "trial_ranges": {
-     "500r": [], "500f": [], "1000r": [5, 9],
+     "500r": [1, 10], "500f": [1, 1], "1000r": [5, 9],
      "1000f": [], "1500r": [], "1500f": []
    }
    ```
 
-   Endpoints are inclusive: this ingests five recordings, `1000r5`–`1000r9`.
-   `[]` skips ingestion for that group and keeps its history available for analysis.
+   Endpoints are inclusive: this selects `500r1`–`500r10`, `500f1`, and
+   `1000r5`–`1000r9`. `[1, 1]` selects one trial. `[]` skips ingestion for
+   that group and keeps its saved trials available for analysis.
    Endpoints must be positive integers in ascending order; malformed groups,
    duplicate keys, nested arrays and invalid ranges are rejected. Separate batches
    may leave gaps in numbering: historical IDs are never renumbered.
@@ -34,25 +35,39 @@ Run these commands from the repository root.
    `00001.MTS` require an explicit source-identification mechanism; file ordering
    never assigns a trial ID. The default extension remains `.MTS`.
 
-2. **Extract frames and calibrate (MATLAB).** Run extraction, then click each
-   ruler mark requested at the top of the calibration window. Points stay
-   labeled and can be dragged to correct them. After placing all marks, click a
-   point to select it (cyan): arrow keys move it 1 pixel; Shift+arrow moves it
-   10 pixels. Click **Accept points** after review, or close the window to
-   cancel without saving calibration parameters.
-   Set `calibration.reference_trial` explicitly (for example `1000r1`, even if
-   its ingestion range is empty). Alternatively, omit `reference_trial` and
-   provide an image at `paths.calibration_reference`. Completing the calibration
-   replaces the MAT file at `paths.ruler_calibration`; cancelling keeps the
-   previous calibration. The reference image is not replaced.
+2. **Extract frames and calibrate (MATLAB).** Extract the selected trials:
 
    ```matlab
    run('Data_Generation/save_frames.m')
+   ```
+
+   Frames go to `paths.frames/{group}/{trial}_frames/`. Complete extractions
+   are checked using `.complete` and the expected JPEGs, then skipped on reruns.
+
+   Choose the calibration image independently of the ingestion ranges. For example:
+
+   ```json
+   "calibration": {
+     "reference_trial": "500r5"
+   }
+   ```
+
+   This uses `paths.frames/500r/500r5_frames/001.jpg` (or its legacy flat path).
+   That frame must already exist. `calibration.reference_trial` takes precedence
+   over `paths.calibration_reference`; to use the standalone image at that path,
+   remove `reference_trial` or the entire `calibration` section. The script does
+   not automatically choose the first trial in the ingestion range.
+
+   ```matlab
    run('Data_Generation/calibration/calibrateRulerAxis.m')
    ```
 
-   Skip the calibration command when reusing the saved calibration.
-   Completed frame extractions retain their `.complete` validation checks.
+   Click the ruler marks requested by the calibration window. Drag points to
+   correct them, or select a point and use arrow keys (Shift+arrow: 10 pixels).
+   Click **Accept points** to complete calibration. Completing the script
+   **replaces** `paths.ruler_calibration`; closing the selection window cancels
+   without changing the saved calibration. The reference image is not replaced.
+   Skip this command when reusing the existing calibration for the same setup.
 
 3. **Generate trial data (MATLAB).**
 
@@ -64,6 +79,8 @@ Run these commands from the repository root.
    and saves angle CSVs, audio-event candidates and per-trial metadata.
    Use `audio.inspect` to review the cues; put corrections in the trial's
    `manual_event_times_s` metadata fields. Failed trials are reported and skipped.
+   Recalibrating does not automatically rebuild completed CSVs; use
+   `video.regenerate_trials` when deliberately regenerating them (see below).
 
 4. **Analyze a group (Python).**
 
@@ -73,7 +90,33 @@ Run these commands from the repository root.
 
    On the first run, choose the free-decay fit start and two integration
    endpoints for each event. Selections are saved and reused next time.
-   Results and plots go to `results/1000r/` by default.
+   Results and plots go to `results/1000r/` by default. Analysis includes all
+   saved CSV/metadata pairs in that group, regardless of the current ingestion
+   range, and excludes invalid trials. Run it once for each group you want in
+   the Reynolds summary, for example:
+
+   ```bash
+   python main.py 500 r
+   python main.py 1500 r
+   python main.py 500 f
+   ```
+
+5. **Plot the Reynolds summaries (Python).** After analyzing the individual
+   groups, combine their saved results for a chosen direction:
+
+   ```bash
+   python plot_reynolds_summary.py --direction r
+   python plot_reynolds_summary.py --direction f
+   ```
+
+   Each command produces five figures in `results/global/r/` or
+   `results/global/f/`: startup, shutdown, imbalance, combined signed integrals,
+   and combined magnitudes. Add `--no-show` to save without opening figures.
+   This reads existing group `jump_summary.csv` files; it does not run group
+   analysis. Missing summaries are reported and skipped. Rerun step 4 for each
+   affected group after changing its inputs or selections, then rerun step 5.
+
+The following options apply to `main.py` group analysis:
 
 | Optional argument | Use |
 | --- | --- |
@@ -208,8 +251,24 @@ Generated data uses `paths.data/{group}/{trial}_data.csv` and
 `{trial}_metadata.json`. Optional masked/overlay MP4s and overlay-frame folders
 use that same group directory. Extracted frames use
 `paths.frames/{group}/{trial}_frames/`, including when `paths.frames` is on an
-external drive. Legacy flat paths remain readable; ambiguous duplicate flat and
-grouped artifacts cause a collision error. CSV columns and units are unchanged.
+external drive. For example:
+
+```text
+Data_Generation/data/
+    500r/
+        500r1_data.csv
+        500r1_metadata.json
+    1000r/
+        1000r5_data.csv
+        1000r5_metadata.json
+
+{paths.frames}/1000r/1000r5_frames/001.jpg
+results/1000r/jump_summary.csv
+results/global/r/startup_vs_reynolds.png
+```
+
+Legacy flat paths remain readable; ambiguous duplicate flat and grouped artifacts
+cause a collision error. CSV columns and units are unchanged.
 
 ## Existing data and migration
 
@@ -233,9 +292,9 @@ python main.py --migrate-data --include-frames --apply
 
 The command preflights destination conflicts, never overwrites destinations,
 keeps CSV/metadata bytes unchanged, and safely reruns. Frame migration requires
-`--include-frames`; no external-drive migration has been performed. Unrecognized
-legacy names and original MTS recordings are left untouched. Stop other writers
-during migration. Flat paths remain readable until migration is completed.
+`--include-frames` because the configured location can be an external drive.
+Unrecognized legacy names and original MTS recordings are left untouched. Stop
+other writers during migration. Flat paths remain readable until migration is completed.
 
 To rebuild plots with saved selections and no connected recordings:
 
@@ -386,41 +445,21 @@ and other numerical changes are deferred.
 
 ## Verification
 
-The original test suite and focused batch checks exercise reconstruction/export,
-group selection, saved timing/selections, reselection and invalid-trial exclusion.
-Run `python -m unittest discover -s tests -v` to include the synthetic global-plot
-checks for numeric Reynolds ordering, exact trial/mean/theory series, event
-pairing, exclusions, missing theory/groups, physical comparability and direction
-separation. Plot-artist checks also verify that no uncertainty ranges appear.
-The combined-plot checks also verify exact signed and magnitude series, means of
-individual magnitudes, theory slopes and symmetry, missing/inconsistent theory,
-single-group inputs, all five outputs and byte-identical original PNGs.
-The current 64-test suite passes in the default Python 3.9 environment. The
-earlier 42-test suite passed with both Python 3.12/NumPy 2 and the default
-Python 3.9/NumPy 1.23.5 environment, including shared group/repeat expansion
-and invalid configuration checks. MATLAB R2026a syntax
-checks and synthetic AVI/JPEG/WAV checks also passed: extraction completion and
-reuse, stale-frame cleanup, reference preservation, independent audio candidates
-and offsets, metadata preservation, missing-detection exclusion and continuation.
-For the existing `1000r1_data.csv`, the pre-refactor and refactored calculations
-were compared with motion preprocessing disabled, fit start 25 s and fixed windows
-`[11.149896, 12.149896]` and `[21.149896, 22.149896]`. Fitted constants, every torque
-sample, forward reconstruction and both signed cumulative torque values were identical. The
-cumulative torque values were -247.57673961727286 and 276.5888171556742 dyn·cm·s. These fixed windows
-are a numerical regression check, not confirmation of the audio event times.
+Run `python -m unittest discover -s tests -v` to check range validation,
+grouped/legacy paths, migration conflicts and rollback, historical trial discovery,
+saved selections, invalid-trial exclusion, reconstruction/export, and the global
+plots' measured values, means, theoretical comparisons and output files.
 
-For the storage/range change, all six existing trials (`1000r1`–`1000r4`,
+For the storage/range refactor, six historical trials (`1000r1`–`1000r4`,
 `1500r1`–`1500r2`) were recomputed from isolated copies before and after the
 change. Fitted parameters, torque arrays, cumulative integrals, event integrals,
 theoretical predictions, forward reconstruction and reconstruction errors were
 exactly equal. Torque arrays and saved event-result fields also matched the
 existing result CSVs exactly. Original data, metadata and result CSVs remained
-byte-identical. These checks validate numerical preservation for the available
-CSV inputs, including their existing saved selections.
-
-Actual MTS recordings and a saved ruler calibration are absent from this checkout,
-so real video decoding, laser tracking, audio cue quality, interactive calibration
-and playback require verification with the experiment recordings.
+byte-identical. These comparisons cover those CSV inputs and their saved
+selections; they do not verify new recordings, audio cue accuracy or a new ruler
+calibration. Video tracking, audio inspection and interactive calibration should
+be checked against the experiment recordings when the setup changes.
 
 ## Mathematical Details of Method 
 
