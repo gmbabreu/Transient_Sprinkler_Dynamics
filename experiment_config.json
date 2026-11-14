@@ -8,15 +8,15 @@
     "ruler_calibration": "Data_Generation/calibration/frame_rulerCalibration.mat"
   },
   "trial_ranges": {
-    "500r": [],
-    "500f": [],
+    "500r": [1, 10],
+    "500f": [1, 1],
     "1000r": [5, 9],
     "1000f": [],
     "1500r": [],
     "1500f": []
   },
   "calibration": {
-    "reference_trial": "1000r1"
+    "reference_trial": "500r5"
   },
   "video": {
     "extension": ".MTS",

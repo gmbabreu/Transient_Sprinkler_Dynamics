@@ -40,19 +40,18 @@ Run these commands from the repository root.
    point to select it (cyan): arrow keys move it 1 pixel; Shift+arrow moves it
    10 pixels. Click **Accept points** after review, or close the window to
    cancel without saving calibration parameters.
-   Reuse an existing ruler calibration without running the calibration script.
-   For a new setup, select a **new** `paths.ruler_calibration` destination and
-   set `calibration.reference_trial` explicitly (for example `1000r1`, even if
+   Set `calibration.reference_trial` explicitly (for example `1000r1`, even if
    its ingestion range is empty). Alternatively, omit `reference_trial` and
-   provide an image at `paths.calibration_reference`. Calibration refuses to
-   replace an existing MAT file and does not replace the reference image.
+   provide an image at `paths.calibration_reference`. Completing the calibration
+   replaces the MAT file at `paths.ruler_calibration`; cancelling keeps the
+   previous calibration. The reference image is not replaced.
 
    ```matlab
    run('Data_Generation/save_frames.m')
    run('Data_Generation/calibration/calibrateRulerAxis.m')
    ```
 
-   Run the calibration command only when creating a new calibration.
+   Skip the calibration command when reusing the saved calibration.
    Completed frame extractions retain their `.complete` validation checks.
 
 3. **Generate trial data (MATLAB).**

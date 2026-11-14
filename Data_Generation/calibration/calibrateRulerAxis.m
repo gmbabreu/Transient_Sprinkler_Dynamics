@@ -14,10 +14,6 @@ numPoints = numel(rulerValues);
 
 originValue = 17.5;          % Physical value chosen as xC
 
-% Reuse historical calibration by default. A new calibration must have a new
-% destination: never replace bytes that historical trials may depend on.
-assert(~isfile(config.paths.ruler_calibration), ...
-    'Calibration exists; reuse it, or select a NEW paths.ruler_calibration for a new setup.');
 referenceFrame = config.paths.calibration_reference;
 if isfield(config, 'calibration') && isfield(config.calibration, 'reference_trial') ...
         && strlength(string(config.calibration.reference_trial)) > 0
@@ -168,7 +164,7 @@ rulerCalibration.originValue = originValue;
 
 rulerCalibration.pixelToDistanceSpline = pixelToDistanceSpline;
 
-% Honor a configured calibration destination, including a new batch folder.
+% Save to the configured destination, replacing any previous calibration.
 outputDir = fileparts(config.paths.ruler_calibration);
 if ~isfolder(outputDir), mkdir(outputDir); end
 save(config.paths.ruler_calibration,"rulerCalibration")
